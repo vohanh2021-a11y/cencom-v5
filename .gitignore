@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Env & secrets (KHÔNG BAO GIỜ commit)
+.env
+.env.*
+!.env.example
+
+# Vercel / Supabase local
+.vercel/
+supabase/.temp/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+coverage/
+playwright-report/

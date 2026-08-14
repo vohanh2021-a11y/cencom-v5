@@ -1,0 +1,41 @@
+# =====================================================================
+# Supabase config — cencomOS-Garage v4.0
+# Dùng cho: supabase start (local) / supabase db push (remote)
+# Storage policies + RLS chi tiết: supabase/migrations/ (GĐ4 + GĐ10)
+# =====================================================================
+
+project_id = "cencom-os-v4"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "20MB"
+
+[storage.buckets.temp_chat_imgs]
+public = false
+file_size_limit = "5MB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
+
+[auth]
+enabled = false
+
+[realtime]
+enabled = true
