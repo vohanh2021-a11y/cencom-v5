@@ -9,7 +9,7 @@
     "apps/*"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit && npm run typecheck --workspace @cencom/db",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace @cencom/db && npm run typecheck --workspace @cencom/core",
     "seed": "node --import tsx packages/db/src/cli.ts seed",
     "migrate": "node --import tsx packages/db/src/cli.ts migrate",
     "test": "npm test --workspaces --if-present"

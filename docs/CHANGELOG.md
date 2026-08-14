@@ -33,3 +33,39 @@
 - `npm run typecheck` sạch; `npm test` (workspace @cencom/db) pass.
 
 **Kế tiếp (GĐ2)**: port `packages/core` theo thứ tự db.ts → auth.ts → perm.ts → scoring.ts → sc.ts → kho.ts → chat.ts → tk.ts → xuong.ts → asset.ts → baogia.ts → nhanKy.ts → welcome.ts → report.ts → preview.ts (mỗi module kèm test vitest).
+
+## 2026-08-14 — GĐ2: Port toàn bộ `packages/core` (134 test pass)
+
+- Monorepo `packages/core` (TS thuần, mọi hàm async + `api = { db, auth, perm }`):
+  - `src/db.ts` — Pool PG + transaction + audit + softDelete + nextId (`counter FOR UPDATE`); PGlite executor cho test.
+  - `src/auth.ts` — scrypt (`scrypt:salt:hash`), session `cen_session`, `must_change`, reset pw.
+  - `src/perm.ts` — MATRIX CBAC (8 vai, 12 module) + fallback MATRIX; `canApproveSC`/`canApproveMua` theo ngưỡng.
+  - `src/scoring.ts` — thang A–E, `scoreVehicle`/`scoreSystem`.
+  - `src/sc.ts` (21 test) — luồng `de_xuat → da_duyet → dang_sua → cho_nghiem → da_hoan → da_quyet`; `scApprove` (ngưỡng), `scStart`/`scFinish`/`scNghiem` (biên bản); `scWorkAdd`/`scVtAdd`/`scTongDuyet` + snapshot; `congViecSave`/`scVtUpd`.
+  - `src/kho.ts` (21 test) — vật tư tồn, ĐM mua (tạo/từ SC/auto BOM), nhập/xuất kho, thanh lý, auto xuất từ nhập, lịch sử giá.
+  - `src/chat.ts` (9 test) — thread 1-1, lưu img JPG local/Storage, bot trả lời (tồn kho/SC), read/unread.
+  - `src/tk.ts` (10 test) — yêu cầu thăm khám: lái xe tạo → quản lý duyệt → xưởng nhận/giao → th�� start/finish; `tkCreateSC` nối tiếp SC; lọc theo BKS.
+  - `src/xuong.ts` (7 test) — dashboard xưởng (TK chờ/đang xử lý, SC theo trạng thái, công việc th��, vật tư thiếu); `dashboardAll` Kanban 5 cột (1 xe=1 card, group by BKS, ưu tiên trễ hạn).
+  - `src/asset.ts` (7 test) — quyết toán (check 8 bước hồ sơ), lý lịch sửa chữa, GTTV = nguyên giá − khấu hao + chi phí tích lũy; cache báo cáo 60s.
+  - `src/baogia.ts` (10 test) — **v4: B�� ảnh/OCR**, nhập tay NCC + items qua `dm_id` (dm_mua_ct); `baoGiaCreate`/`Confirm`/`Del`; `baoGiaOcr` stub l��i.
+  - `src/nhanKy.ts` (5 test) — chữ ký phiếu (vị trí nguoi_lap/thu_kho/lai_xe/kt_truong/xuong/ben_giao/ben_nhan/giam_doc); soft-delete.
+  - `src/welcome.ts` (8 test) — trang chủ theo vai (shortcut/stats/myTasks/lowTon); greeting/viDate/dateVN.
+  - `src/handlers.ts` — `vehicleHealthLog`/`fleetReport`/`accountingReport` (pre-fetch, không async trong map).
+  - `src/report.ts` — ExcelJS export: lý lịch xe, đội xe, kế toán, tồn kho, phiếu xuất, quyết toán, TK, có header/footer Times New Roman.
+  - `src/preview.ts` — admin xem thử 7 vai (giamdoc/quanly/ketoan/tho/khoa/xuong/laixe) dữ liệu DEMO, nav/actions theo MATRIX.
+- `src/index.ts` export tất cả module.
+- Test: **134/134 pass** (PGlite, vitest hookTimeout 30s).
+- `npm run typecheck` (root + @cencom/db + @cencom/core) sạch.
+- Toàn bộ repo: typecheck + test pass.
+
+## 2026-08-14 — Ghi nhớ: Kanban v3.6.2 requirements (từ v3.6)
+
+- **Kanban Bảng điều khiển**: 1 xe = 1 card (group by `bks`), KHÔNG phải 1 SC = 1 card.
+- **5 cột simplified**: Đề xuất / Đã duyệt / Đang sửa / Chờ nghiệm thu / Từ chối.
+  - BỎ cột: Đã tổng duyệt, Hoàn thành, Đã quyết toán (không cần trên dashboard).
+- **Ưu tiên xếp cột**: `dang_sua(5) > cho_nghiem(4) > da_duyet(3) > de_xuat(2) > tu_choi(1)`.
+- **Card hiển thị**: BKS + hãng/model + tổng số SC + tổng tiền + progress bar + ETA + badge breakdown theo trạng thái.
+- **Click card → modal timeline**: hiển thị 5 bước (Lập → Duyệt → Bắt đầu → Hẹn trả → Nghiệm thu) cho từng SC của xe.
+- **Lái xe**: KHÔNG yêu cầu đổi mật khẩu mặc định khi đăng nhập (bỏ modal mustChange ở `laixe.html`). Server vẫn giữ logic `must_change` ở backend.
+- **KPI giữ nguyên8 ô**: xe, SC chờ duyệt, SC đang sửa, chờ nghiệm thu, TK chờ duyệt, TK đang xử lý, hoàn hôm nay, quyết toán hôm nay.
+- **Schema PG v4**: cần bảng `phieu_sua` có cột `ngay_bat_dau`, `ngay_du_kien`, `ngay_nghiem`, `la_sua_ngoai`, `tk_id` (đã có trong schema GĐ1). Dashboard query PostgreSQL group by `bks` thay vì theo `trang_thai` đơn lẻ.
