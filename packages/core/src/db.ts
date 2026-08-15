@@ -125,15 +125,6 @@ export interface Db {
   usersList(role?: string): Promise<import('./types.js').UserRow[]>;
   userByLogin(login: string): Promise<import('./types.js').UserRow | undefined>;
   userByName(name: string): Promise<import('./types.js').UserRow | undefined>;
-  bieuMaGroups(): Promise<import('./types.js').BieuMaGroup[]>;
-  itemMap(): Promise<Record<number, number>>;
-  phieuList(): Promise<import('./types.js').PhieuRow[]>;
-  phieuByBks(bks: string): Promise<import('./types.js').PhieuRow[]>;
-  phieuById(id: string): Promise<import('./types.js').PhieuRow | undefined>;
-  ketQuaByPhieu(phieuId: string): Promise<import('./types.js').KetQuaRow[]>;
-  ketQuaByBks(bks: string): Promise<import('./types.js').KetQuaJoinedRow[]>;
-  deleteKetQua(phieuId: string): Promise<void>;
-  deletePhieu(id: string): Promise<void>;
 }
 
 const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -261,57 +252,6 @@ export function createDb(executor: SqlExecutor): Db {
     },
     async userByName(name: string): Promise<import('./types.js').UserRow | undefined> {
       return row<import('./types.js').UserRow>('SELECT * FROM users WHERE upper(name) = upper($1)', name);
-    },
-    async bieuMaGroups(): Promise<import('./types.js').BieuMaGroup[]> {
-      const raws = await rows<import('./types.js').BieuMaRow>('SELECT * FROM bieu_ma ORDER BY group_id, item_id');
-      const map: Record<number, import('./types.js').BieuMaGroup> = {};
-      raws.forEach((r) => {
-        if (!map[r.group_id]) {
-          map[r.group_id] = { group_id: r.group_id, name: r.group_name, short: r.group_short, items: [] };
-        }
-        map[r.group_id]!.items.push({ item_id: r.item_id, name: r.item_name, priority: r.priority || 'Bình thường' });
-      });
-      return Object.keys(map)
-        .sort((a, b) => +a - +b)
-        .map((k) => map[+k]!);
-    },
-    async itemMap(): Promise<Record<number, number>> {
-      const out: Record<number, number> = {};
-      const raws = await rows<{ item_id: number; group_id: number }>('SELECT item_id, group_id FROM bieu_ma');
-      raws.forEach((r) => {
-        out[r.item_id] = r.group_id;
-      });
-      return out;
-    },
-    async phieuList(): Promise<import('./types.js').PhieuRow[]> {
-      return rows<import('./types.js').PhieuRow>('SELECT * FROM kiem_tra ORDER BY ngay DESC, id DESC');
-    },
-    async phieuByBks(bks: string): Promise<import('./types.js').PhieuRow[]> {
-      return rows<import('./types.js').PhieuRow>(
-        'SELECT * FROM kiem_tra WHERE upper(bks)=upper($1) ORDER BY ngay DESC, id DESC',
-        bks
-      );
-    },
-    async phieuById(id: string): Promise<import('./types.js').PhieuRow | undefined> {
-      return row<import('./types.js').PhieuRow>('SELECT * FROM kiem_tra WHERE id = $1', id);
-    },
-    async ketQuaByPhieu(phieuId: string): Promise<import('./types.js').KetQuaRow[]> {
-      return rows<import('./types.js').KetQuaRow>('SELECT * FROM ket_qua WHERE phieu_id = $1 ORDER BY item_id', phieuId);
-    },
-    async ketQuaByBks(bks: string): Promise<import('./types.js').KetQuaJoinedRow[]> {
-      return rows<import('./types.js').KetQuaJoinedRow>(
-        `SELECT k.*, p.ngay, p.mode AS p_mode
-         FROM ket_qua k JOIN kiem_tra p ON p.id = k.phieu_id
-         WHERE upper(k.bks) = upper($1)
-         ORDER BY k.item_id, p.ngay, p.id`,
-        bks
-      );
-    },
-    async deleteKetQua(phieuId: string): Promise<void> {
-      await run('DELETE FROM ket_qua WHERE phieu_id = $1', phieuId);
-    },
-    async deletePhieu(id: string): Promise<void> {
-      await run('DELETE FROM kiem_tra WHERE id = $1', id);
     },
   };
 

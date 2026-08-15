@@ -35,6 +35,14 @@ const BKS = '37H-09917';
 beforeAll(async () => {
   ctx = await makeCtx();
   await seedPerms(ctx.db);
+  // Seed danh mục công việc mẫu (cần cho congViecList test)
+  await ctx.db.run(
+    `INSERT INTO congviec(name, don_gia, nhom, donvi) VALUES
+      ('Thay nhớt', 50000, 'Bảo dưỡng', 'lần'),
+      ('Thay lốp', 2000000, 'Sửa chữa', 'cái'),
+      ('Vá lốp', 200000, 'Sửa chữa', 'cái')
+     ON CONFLICT DO NOTHING`
+  );
 }, 60000);
 
 afterEach(() => {
@@ -81,14 +89,14 @@ describe('scCreate — tạo phiếu', () => {
   });
 
   it('không đủ quyền → throw', async () => {
-    // laixe chỉ có tk/xe/chat — không có sc.tao → checkLock ném lỗi
-    ctx.setActor({ id: 'laixe-1', name: 'Lái xe 1', role: 'laixe' });
+    // khoa chỉ có kho — không có sc.tao → checkLock ném lỗi
+    ctx.setActor({ id: 'khoa-1', name: 'Thủ kho', role: 'khoa' });
     await expect(scCreate(ctx, { bks: BKS })).rejects.toThrow('Không đủ quyền');
   });
 
-  it('tạo SC thứ 2 từ 1 TK → vẫn OK (quyết định giữ v3.6: chỉ báo qua tk_createSC)', async () => {
+  it('tạo SC gắn de_xuat_id → vẫn OK', async () => {
     asAdmin();
-    const r = await scCreate(ctx, { bks: BKS, tk_id: 'TK-000001' });
+    const r = await scCreate(ctx, { bks: BKS, de_xuat_id: 'DX-000001' });
     expect(r.ok).toBe(true);
   });
 });

@@ -174,6 +174,34 @@ export async function mustChange(db: Db, userId: string): Promise<boolean> {
   return !!(r && r.must_change);
 }
 
+/* ---------------- Đổi mật khẩu (bắt buộc lần đầu / tự đổi) ---------------- */
+export async function changePassword(
+  db: Db,
+  userId: string,
+  oldPlain: string,
+  newPlain: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (cpBlocked(userId)) {
+    return { ok: false, error: 'Quá nhiều lần sai, thử lại sau.' };
+  }
+  if (!newPlain || String(newPlain).length < 6) {
+    return { ok: false, error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' };
+  }
+  const u = await db.row<{ pass_hash: string }>(
+    'SELECT pass_hash FROM users WHERE id = $1 AND active = 1',
+    userId,
+  );
+  if (!u) return { ok: false, error: 'Không tìm thấy người dùng.' };
+  if (!verifyPassword(u.pass_hash, oldPlain || '')) {
+    cpFail(userId);
+    return { ok: false, error: 'Mật khẩu cũ không đúng.' };
+  }
+  await setPasswordFor(db, userId, newPlain);
+  await setMustChange(db, userId, false);
+  cpReset(userId);
+  return { ok: true };
+}
+
 /* ---------------- current() — actor context (setUser trước mỗi RPC) ---------------- */
 let _actor: { id: string; name: string; role: string; phone?: string; phong_ban?: string } | null = null;
 export function setUser(u: { id: string; name: string; role: string; phone?: string; phong_ban?: string } | null): void {
@@ -207,6 +235,7 @@ export default {
   setPasswordFor,
   setMustChange,
   mustChange,
+  changePassword,
   setUser,
   current,
   currentName,

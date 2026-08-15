@@ -51,10 +51,9 @@ export const SHORTCUTS: Record<string, Array<[string, string]>> = {
   tho: [['sc_new', 'Phiếu sửa chữa'], ['sc_my', 'Việc của tôi'], ['sc_list', 'Sửa chữa']],
   khoa: [['kho_ton', 'Tồn kho'], ['dm_new', 'Đề nghị mua'], ['sc_list', 'Sửa chữa']],
   ketoan: [['dm_pending', 'Duyệt mua'], ['qtoan', 'Quyết toán'], ['kho_ton', 'Kho']],
-  quanly: [['tk_approve', 'Duyệt thăm khám'], ['sc_pending', 'Duyệt sửa'], ['asset', 'Tài sản']],
+  quanly: [['dx_approve', 'Duyệt đề xuất'], ['sc_pending', 'Duyệt sửa'], ['asset', 'Tài sản']],
   giamdoc: [['sc_pending', 'Duyệt sửa'], ['dm_pending', 'Duyệt mua'], ['asset', 'Tài sản']],
-  xuong: [['xuong', 'Bảng điều hành xưởng'], ['tk_workshop', 'Nhận yêu cầu'], ['sc_list', 'Sửa chữa']],
-  laixe: [['tk_new', 'Gửi yêu cầu'], ['tk_mine', 'Yêu cầu của tôi'], ['xe_my', 'Xe của tôi']],
+  xuong: [['xuong', 'Bảng điều hành xưởng'], ['dx_new', 'Tạo đề xuất'], ['sc_list', 'Sửa chữa']],
   admin: [['perm', 'Phân quyền'], ['ids', 'Người dùng'], ['asset', 'Tài sản']]
 };
 
@@ -88,10 +87,8 @@ export async function welcome(api: WelcomeApi): Promise<Record<string, unknown>>
     scChoNghiem: await cnt(db, "SELECT COUNT(*) c FROM phieu_sua WHERE trang_thai='cho_nghiem' AND deleted_at=''"),
     dmChoDuyet: await cnt(db, "SELECT COUNT(*) c FROM de_nghi_mua WHERE trang_thai='cho_duyet' AND deleted_at=''"),
     lowTon: await cnt(db, "SELECT COUNT(*) c FROM vattu WHERE ton < ton_min AND deleted_at=''"),
-    sbd: await cnt(db, "SELECT COUNT(*) c FROM bao_duong WHERE lan_sau != '' AND lan_sau <= $1", db.today()),
-    tkChoDuyet: await cnt(db, "SELECT COUNT(*) c FROM yeu_cau_tham_kham WHERE trang_thai='cho_duyet' AND deleted_at=''"),
-    tkChoXuong: await cnt(db, "SELECT COUNT(*) c FROM yeu_cau_tham_kham WHERE trang_thai='da_duyet' AND deleted_at=''"),
-    tkMine: await cnt(db, "SELECT COUNT(*) c FROM yeu_cau_tham_kham WHERE upper(lai_xe)=upper($1) AND trang_thai<>'da_hoan' AND trang_thai<>'da_huy' AND deleted_at=''", mid),
+    dxChoDuyet: await cnt(db, "SELECT COUNT(*) c FROM de_xuat_sua_chua WHERE trang_thai='cho_duyet' AND deleted_at=''"),
+    dxDaDuyet: await cnt(db, "SELECT COUNT(*) c FROM de_xuat_sua_chua WHERE trang_thai='da_duyet' AND deleted_at=''"),
     chatUnread: await cnt(db, "SELECT COUNT(*) c FROM chat_messages WHERE to_id=$1 AND is_read=0", mid)
   };
 
@@ -118,30 +115,23 @@ export async function welcome(api: WelcomeApi): Promise<Record<string, unknown>>
     myTasks.push({ type: 'note', text: 'Có ' + stats.dmChoDuyet + ' đề nghị mua đang chờ duyệt.' });
   }
   if (['quanly', 'giamdoc'].includes(role)) {
-    const tks = await db.rows<Record<string, unknown>>(
-      "SELECT * FROM yeu_cau_tham_kham WHERE trang_thai='cho_duyet' AND deleted_at='' ORDER BY ngay DESC LIMIT 8"
+    const dxs = await db.rows<Record<string, unknown>>(
+      "SELECT * FROM de_xuat_sua_chua WHERE trang_thai='cho_duyet' AND deleted_at='' ORDER BY ngay DESC LIMIT 8"
     );
-    tks.forEach((t) => myTasks.push({ type: 'approve_tk', tk_id: t.id, bks: t.bks, mo_ta: t.mo_ta }));
-    myTasks.push({ type: 'note', text: 'Có ' + stats.tkChoDuyet + ' yêu cầu thăm khám đang chờ duyệt.' });
+    dxs.forEach((t) => myTasks.push({ type: 'approve_dx', dx_id: t.id, bks: t.bks, mo_ta: t.mo_ta }));
+    myTasks.push({ type: 'note', text: 'Có ' + stats.dxChoDuyet + ' đề xuất sửa chữa đang chờ duyệt.' });
   }
   if (role === 'xuong') {
-    const tks = await db.rows<Record<string, unknown>>(
-      "SELECT * FROM yeu_cau_tham_kham WHERE trang_thai='da_duyet' AND deleted_at='' ORDER BY ngay ASC LIMIT 8"
+    const dxs = await db.rows<Record<string, unknown>>(
+      "SELECT * FROM de_xuat_sua_chua WHERE trang_thai='da_duyet' AND deleted_at='' ORDER BY ngay ASC LIMIT 8"
     );
-    tks.forEach((t) => myTasks.push({ type: 'tk_workshop', tk_id: t.id, bks: t.bks, mo_ta: t.mo_ta }));
+    dxs.forEach((t) => myTasks.push({ type: 'dx_to_sc', dx_id: t.id, bks: t.bks, mo_ta: t.mo_ta }));
     const scs = await db.rows<Record<string, unknown>>(
       "SELECT * FROM phieu_sua WHERE trang_thai='cho_nghiem' AND deleted_at='' ORDER BY ngay ASC LIMIT 8"
     );
     scs.forEach((p) => myTasks.push({ type: 'nghiem_sc', sc_id: p.id, bks: p.bks, tong: p.tong }));
-    myTasks.push({ type: 'note', text: 'Có ' + stats.tkChoXuong + ' yêu cầu chờ xưởng nhận, ' +
+    myTasks.push({ type: 'note', text: 'Có ' + stats.dxDaDuyet + ' đề xuất đã duyệt chờ tạo phiếu, ' +
       stats.scChoNghiem + ' phiếu chờ nghiệm thu.' });
-  }
-  if (role === 'laixe') {
-    const tks = await db.rows<Record<string, unknown>>(
-      "SELECT * FROM yeu_cau_tham_kham WHERE upper(lai_xe)=upper($1) AND deleted_at='' ORDER BY ngay DESC, id DESC LIMIT 8",
-      mid
-    );
-    tks.forEach((t) => myTasks.push({ type: 'tk_view', tk_id: t.id, bks: t.bks, trang_thai: t.trang_thai }));
   }
 
   const myToday = {
@@ -167,9 +157,8 @@ export async function welcome(api: WelcomeApi): Promise<Record<string, unknown>>
       scDang: stats.scDang,
       dmChoDuyet: stats.dmChoDuyet,
       lowTon: stats.lowTon,
-      tkChoDuyet: stats.tkChoDuyet,
-      tkChoXuong: stats.tkChoXuong,
-      tkMine: stats.tkMine,
+      dxChoDuyet: stats.dxChoDuyet,
+      dxDaDuyet: stats.dxDaDuyet,
       chatUnread: stats.chatUnread
     },
     myTasks,

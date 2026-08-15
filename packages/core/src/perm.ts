@@ -7,19 +7,18 @@
  */
 import type { Db } from './db.js';
 
-export const ROLES = ['tho', 'khoa', 'ketoan', 'quanly', 'giamdoc', 'xuong', 'laixe', 'admin'] as const;
-export const MODULES = ['sc', 'kho', 'mua', 'asset', 'xe', 'report', 'help', 'chat', 'tk', 'xuong', 'gd2', 'all'] as const;
+export const ROLES = ['tho', 'khoa', 'ketoan', 'quanly', 'giamdoc', 'xuong', 'admin'] as const;
+export const MODULES = ['sc', 'kho', 'mua', 'asset', 'xe', 'report', 'help', 'chat', 'de_xuat', 'xuong', 'gd2', 'all'] as const;
 export const FEATURES = ['xem', 'tao', 'sua', 'duy', 'quyet', 'xuat', 'xoa', 'kehoach'] as const;
 
 /* Ma trận mặc định (admin = toàn quyền). */
 export const MATRIX: Record<string, Record<string, string[]>> = {
-  tho: { sc: ['xem', 'tao', 'sua'], asset: ['xem'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], tk: ['xem', 'sua'], gd2: ['xem', 'tao', 'sua'] },
+  tho: { sc: ['xem', 'tao', 'sua'], asset: ['xem'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem', 'tao', 'sua'] },
   khoa: { kho: ['xem', 'tao', 'sua', 'xuat'], mua: ['xem', 'tao'], sc: ['xem'], xe: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem'] },
-  ketoan: { mua: ['xem', 'tao', 'duy'], asset: ['xem', 'quyet'], sc: ['xem', 'tao', 'kehoach'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], tk: ['xem'], gd2: ['xem'] },
-  quanly: { sc: ['xem', 'duy', 'kehoach'], asset: ['xem', 'quyet'], kho: ['xem'], mua: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], tk: ['xem', 'duy'], xuong: ['xem'], gd2: ['xem', 'tao', 'sua'] },
-  giamdoc: { sc: ['xem', 'duy', 'kehoach'], asset: ['xem', 'duy'], kho: ['xem'], mua: ['xem', 'duy'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], tk: ['xem', 'duy'], xuong: ['xem'], gd2: ['xem', 'tao', 'sua'] },
-  xuong: { tk: ['xem', 'duy', 'sua'], xuong: ['xem'], sc: ['xem', 'tao', 'sua', 'kehoach'], asset: ['xem'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem', 'tao', 'sua'] },
-  laixe: { tk: ['xem', 'tao', 'sua'], xe: ['xem'], chat: ['xem', 'tao'] },
+  ketoan: { mua: ['xem', 'tao', 'duy'], asset: ['xem', 'quyet'], sc: ['xem', 'tao', 'kehoach'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem'] },
+  quanly: { sc: ['xem', 'duy', 'kehoach'], asset: ['xem', 'quyet'], kho: ['xem'], mua: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], de_xuat: ['xem', 'duy'], xuong: ['xem'], gd2: ['xem', 'tao', 'sua'] },
+  giamdoc: { sc: ['xem', 'duy', 'kehoach'], asset: ['xem', 'duy'], kho: ['xem'], mua: ['xem', 'duy'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], de_xuat: ['xem', 'duy'], xuong: ['xem'], gd2: ['xem', 'tao', 'sua'] },
+  xuong: { de_xuat: ['xem', 'tao', 'sua'], xuong: ['xem'], sc: ['xem', 'tao', 'sua', 'kehoach'], asset: ['xem'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem', 'tao', 'sua'] },
 };
 
 async function insert(db: Db, role: string, m: string, f: string): Promise<void> {

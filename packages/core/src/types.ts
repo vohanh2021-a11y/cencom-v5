@@ -24,7 +24,6 @@ export interface XeRow {
   dong: string;
   nam_sx: number;
   lai_xe: string;
-  danh_gia_pct: number;
   phong_ban: string;
   trang_thai: string;
   loai_pt: string;
@@ -32,53 +31,6 @@ export interface XeRow {
   nguyen_gia: number;
   lai_xe_id: string;
   deleted_at: string;
-}
-
-export interface PhieuRow {
-  id: string;
-  bks: string;
-  mode: string;
-  ngay: string;
-  nguoi: string;
-  trang_thai: string;
-  ghi_chu: string;
-  assignee: string;
-  deadline: string;
-  done_at: string;
-  deleted_at: string;
-}
-
-export interface KetQuaRow {
-  id: string;
-  phieu_id: string;
-  bks: string;
-  item_id: number;
-  group_id: number;
-  value: string;
-  ghi_chu: string;
-  deleted_at: string;
-}
-
-export interface KetQuaJoinedRow extends KetQuaRow {
-  ngay: string;
-  p_mode: string;
-}
-
-export interface BieuMaRow {
-  item_id: number;
-  group_id: number;
-  group_name: string;
-  group_short: string;
-  item_name: string;
-  priority: string;
-  deleted_at: string;
-}
-
-export interface BieuMaGroup {
-  group_id: number;
-  name: string;
-  short: string;
-  items: Array<{ item_id: number; name: string; priority: string }>;
 }
 
 export interface AuditRow {
@@ -109,7 +61,7 @@ export interface PhieuSuaRow {
   tong: number;
   ghi_chu: string;
   deleted_at: string;
-  tk_id: string;
+  de_xuat_id: string;
   ngay_du_kien: string;
   ngay_bat_dau: string;
   tinh_trang_pt: string;
@@ -150,7 +102,6 @@ export interface ScVattuRow {
   stt: number;
   nguyen_nhan: string;
   loai_xu_ly: string;
-  bao_gia_id: string;
   ncc: string;
   gia_ngay: string;
   deleted_at: string;
@@ -283,26 +234,21 @@ export interface BaoGiaNccRow {
   deleted_at: string;
 }
 
-export interface YeuCauThamKhamRow {
+export interface DeXuatSuaChuaRow {
   id: string;
   bks: string;
-  lai_xe: string;
   ngay: string;
+  nguoi_tao: string;
   mo_ta: string;
-  dau_hieu: string;
+  dau_hieu: string;  // JSON TEXT (các triệu chứng do xưởng ghi nhận)
   muc_uu_tien: string;
   trang_thai: string;
   nguoi_duyet: string;
   ngay_duyet: string;
   ly_do_tu_choi: string;
-  nguoi_xuong: string;
-  ngay_xuong: string;
-  ly_do_xuong: string;
-  tho_id: string;
-  ngay_giao_tho: string;
   sc_id: string;
-  img_paths: string;
   deleted_at: string;
+  tenant_id: string;
 }
 
 export interface VattuGiaLichSuRow {

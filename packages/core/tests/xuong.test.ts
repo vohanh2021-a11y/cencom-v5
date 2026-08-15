@@ -4,8 +4,9 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { makeCtx, type TestCtx } from './helpers.js';
 import * as xuong from '../src/xuong.js';
-import * as tk from '../src/tk.js';
+import * as deXuat from '../src/de_xuat.js';
 import * as sc from '../src/sc.js';
+import * as cache from '../src/cache.js';
 
 const BKS = '37H-09917';
 
@@ -18,6 +19,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   ctx.setActor({ id: 'admin', name: 'Admin', role: 'admin' });
+  cache.clearAll();
 });
 
 describe('xuongDashboard', () => {
@@ -27,28 +29,37 @@ describe('xuongDashboard', () => {
   });
 
   it('trả cấu trúc cơ bản khi chưa có dữ liệu', async () => {
-    const d = (await xuong.xuongDashboardCached(ctx)) as Record<string, any>;
+    const d = (await xuong.xuongDashboardCached(ctx)) as any;
     expect(d.today).toBeTruthy();
-    expect(Array.isArray(d.tk.cho_xuong)).toBe(true);
-    expect(Array.isArray(d.tk.dang_thuc_hien)).toBe(true);
+    expect(Array.isArray(d.de_xuat.cho_duyet)).toBe(true);
+    expect(Array.isArray(d.de_xuat.da_duyet)).toBe(true);
     expect(Array.isArray(d.sc.dang_sua)).toBe(true);
     expect(Array.isArray(d.sc.cho_nghiem)).toBe(true);
     expect(Array.isArray(d.sc.hoan_hom_nay)).toBe(true);
     expect(Array.isArray(d.sc.quyet_toan_hom_nay)).toBe(true);
-    expect(typeof d.tk.moi_hom_nay).toBe('number');
+    expect(typeof d.de_xuat.moi_hom_nay).toBe('number');
     expect(typeof d.tho.congviec_chua_tho).toBe('number');
     expect(Array.isArray(d.tho.congviec_theo_tho)).toBe(true);
     expect(Array.isArray(d.vattu_thieu)).toBe(true);
   });
 
-  it('xuongDashboard nhìn thấy TK chờ xưởng sau khi xưởng nhận', async () => {
-    const r = await tk.tkCreate(ctx, { bks: BKS, mo_ta: 'Test dashboard xuong', muc_uu_tien: 'Gap' });
-    ctx.setActor({ id: 'quanly-1', name: 'Quản lý', role: 'quanly' });
-    await tk.tkApprove(ctx, r.id!, 'ok');
+  it('xuongDashboard nhìn thấy Đề xuất chờ duyệt do xưởng tạo', async () => {
     ctx.setActor({ id: 'xuong-1', name: 'Quản lý xưởng', role: 'xuong' });
-    await tk.tkWorkshop(ctx, r.id!, 'ok');
-    const d = (await xuong.xuongDashboardCached(ctx)) as Record<string, any>;
-    const inList = (d.tk.cho_xuong as Array<Record<string, unknown>>).some((t) => t.id === r.id);
+    const r = await deXuat.deXuatCreate(ctx, { bks: BKS, mo_ta: 'Test dashboard xuong', muc_uu_tien: 'Khan_cap' });
+    expect(r.ok).toBe(true);
+    const d = (await xuong.xuongDashboardCached(ctx)) as any;
+    const inList = (d.de_xuat.cho_duyet as Array<any>).some((t) => t.id === r.id);
+    expect(inList).toBe(true);
+  });
+
+  it('xuongDashboard: đề xuất đã duyệt nằm mục da_duyet', async () => {
+    ctx.setActor({ id: 'xuong-1', name: 'Quản lý xưởng', role: 'xuong' });
+    const r = await deXuat.deXuatCreate(ctx, { bks: BKS, mo_ta: 'Đã duyệt dashboard', muc_uu_tien: 'Binh_thuong' });
+    ctx.setActor({ id: 'quanly-1', name: 'Quản lý', role: 'quanly' });
+    await deXuat.deXuatApprove(ctx, r.id!, 'ok');
+    ctx.setActor({ id: 'xuong-1', name: 'Quản lý xưởng', role: 'xuong' });
+    const d = (await xuong.xuongDashboardCached(ctx)) as any;
+    const inList = (d.de_xuat.da_duyet as Array<any>).some((t) => t.id === r.id);
     expect(inList).toBe(true);
   });
 });
@@ -69,15 +80,16 @@ describe('dashboardAll', () => {
     const r = await sc.scCreate(ctx, { bks: BKS, mo_ta: 'SC kanban', congviec: [{ congviec_id: 1, so_luong: 1, don_gia: 1000000 }] });
     expect(r.ok).toBe(true);
     ctx.setActor({ id: 'quanly-1', name: 'Quản lý', role: 'quanly' });
-    const d = (await xuong.dashboardAllCached(ctx)) as Record<string, any>;
+    const d = (await xuong.dashboardAllCached(ctx)) as any;
     expect(d.kpi.xe).toBeGreaterThan(0);
     expect(d.kpi.sc_cho_duyet).toBeGreaterThan(0);
     expect(Array.isArray(d.cols)).toBe(true);
     expect(d.cols.length).toBe(5);
     expect(typeof d.baocao_thang.thang).toBe('string');
     const deXuatCol = (d.cols as Array<{ key: string; cards: unknown[] }>).find((c) => c.key === 'de_xuat');
+    expect(deXuatCol).toBeTruthy();
     expect(deXuatCol!.cards.length).toBeGreaterThan(0);
-    const card = deXuatCol!.cards[0] as Record<string, unknown>;
+    const card = (deXuatCol!.cards[0] as Record<string, unknown>);
     expect(card.bks).toBe(BKS);
     expect(typeof card.phan_tram).toBe('number');
   });

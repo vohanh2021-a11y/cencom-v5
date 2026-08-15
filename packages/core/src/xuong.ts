@@ -40,12 +40,12 @@ export function vnd(n: number | string): string {
   return String(Number(n || 0).toLocaleString('vi-VN')).replace(/,/g, '.') + ' đ';
 }
 
-async function tkMini(api: XuongApi, t: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function deXuatMini(api: XuongApi, t: Record<string, unknown>): Promise<Record<string, unknown>> {
   const xe = await api.db.xeByBks(String(t.bks));
   return {
     id: t.id, bks: t.bks, ngay: t.ngay, mo_ta: t.mo_ta,
     muc_uu_tien: t.muc_uu_tien, trang_thai: t.trang_thai,
-    lai_xe: t.lai_xe, tho_id: t.tho_id, sc_id: t.sc_id,
+    nguoi_tao: t.nguoi_tao, sc_id: t.sc_id,
     xe: xe ? xe.hang + ' ' + xe.dong : ''
   };
 }
@@ -53,7 +53,7 @@ function scMini(s: Record<string, unknown>): Record<string, unknown> {
   return {
     id: s.id, bks: s.bks, ngay: s.ngay, mo_ta: s.mo_ta,
     trang_thai: s.trang_thai, tong: s.tong, tong_vnd: vnd(Number(s.tong)),
-    nguoi_lap: s.nguoi_lap, tk_id: s.tk_id || ''
+    nguoi_lap: s.nguoi_lap, de_xuat_id: s.de_xuat_id || ''
   };
 }
 
@@ -62,14 +62,14 @@ export async function xuongDashboard(api: XuongApi): Promise<Record<string, unkn
   const db = api.db;
   const today = db.today();
 
-  const tkChoXuong = await db.rows<Record<string, unknown>>(
-    "SELECT * FROM yeu_cau_tham_kham WHERE trang_thai='xuong_nhan' AND deleted_at='' ORDER BY ngay ASC, id ASC"
+  const dxChoDuyet = await db.rows<Record<string, unknown>>(
+    "SELECT * FROM de_xuat_sua_chua WHERE trang_thai='cho_duyet' AND deleted_at='' ORDER BY ngay ASC, id ASC"
   );
-  const tkDangThucHien = await db.rows<Record<string, unknown>>(
-    "SELECT * FROM yeu_cau_tham_kham WHERE trang_thai IN ('da_giao_tho','dang_thuc_hien') AND deleted_at='' ORDER BY ngay DESC, id DESC"
+  const dxDaDuyet = await db.rows<Record<string, unknown>>(
+    "SELECT * FROM de_xuat_sua_chua WHERE trang_thai='da_duyet' AND deleted_at='' ORDER BY ngay DESC, id DESC"
   );
-  const tkMoiHomNayRow = await db.row<{ n: number }>(
-    "SELECT COUNT(*) n FROM yeu_cau_tham_kham WHERE ngay=$1 AND trang_thai<>'da_huy' AND deleted_at=''", today
+  const dxMoiHomNayRow = await db.row<{ n: number }>(
+    "SELECT COUNT(*) n FROM de_xuat_sua_chua WHERE ngay=$1 AND trang_thai<>'tu_choi' AND deleted_at=''", today
   );
 
   const scDangSua = await db.rows<Record<string, unknown>>(
@@ -106,10 +106,10 @@ export async function xuongDashboard(api: XuongApi): Promise<Record<string, unkn
 
   return {
     today,
-    tk: {
-      cho_xuong: await Promise.all(tkChoXuong.map((t) => tkMini(api, t))),
-      dang_thuc_hien: await Promise.all(tkDangThucHien.map((t) => tkMini(api, t))),
-      moi_hom_nay: Number(tkMoiHomNayRow?.n || 0)
+    de_xuat: {
+      cho_duyet: await Promise.all(dxChoDuyet.map((t) => deXuatMini(api, t))),
+      da_duyet: await Promise.all(dxDaDuyet.map((t) => deXuatMini(api, t))),
+      moi_hom_nay: Number(dxMoiHomNayRow?.n || 0)
     },
     sc: {
       dang_sua: scDangSua.map(scMini),
@@ -158,8 +158,8 @@ export async function dashboardAll(api: XuongApi): Promise<Record<string, unknow
     sc_cho_duyet: await count("SELECT COUNT(*) n FROM phieu_sua WHERE trang_thai IN ('de_xuat','da_duyet') AND deleted_at=''"),
     sc_dang_sua: await count("SELECT COUNT(*) n FROM phieu_sua WHERE trang_thai='dang_sua' AND deleted_at=''"),
     sc_cho_nghiem: await count("SELECT COUNT(*) n FROM phieu_sua WHERE trang_thai='cho_nghiem' AND deleted_at=''"),
-    tk_cho_duyet: await count("SELECT COUNT(*) n FROM yeu_cau_tham_kham WHERE trang_thai='cho_duyet' AND deleted_at=''"),
-    tk_dang_xu_ly: await count("SELECT COUNT(*) n FROM yeu_cau_tham_kham WHERE trang_thai IN ('xuong_nhan','da_giao_tho','dang_thuc_hien') AND deleted_at=''"),
+    dx_cho_duyet: await count("SELECT COUNT(*) n FROM de_xuat_sua_chua WHERE trang_thai='cho_duyet' AND deleted_at=''"),
+    dx_da_duyet: await count("SELECT COUNT(*) n FROM de_xuat_sua_chua WHERE trang_thai='da_duyet' AND deleted_at=''"),
     sc_hoan_hom_nay: await count("SELECT COUNT(*) n FROM phieu_sua WHERE ngay_nghiem=$1 AND trang_thai='da_hoan' AND deleted_at=''", today),
     tien_quyet_hom_nay: 0,
     vattu_thieu: await count("SELECT COUNT(*) n FROM vattu WHERE ton_min>0 AND ton<ton_min AND deleted_at=''"),
@@ -295,7 +295,7 @@ export async function dashboardAll(api: XuongApi): Promise<Record<string, unknow
       xe: kpi.xe,
       sc_cho_duyet: kpi.sc_cho_duyet, sc_dang_sua: kpi.sc_dang_sua,
       sc_cho_nghiem: kpi.sc_cho_nghiem,
-      tk_cho_duyet: kpi.tk_cho_duyet, tk_dang_xu_ly: kpi.tk_dang_xu_ly,
+      dx_cho_duyet: kpi.dx_cho_duyet, dx_da_duyet: kpi.dx_da_duyet,
       sc_hoan_hom_nay: kpi.sc_hoan_hom_nay,
       tien_quyet_hom_nay: vnd(kpi.tien_quyet_hom_nay),
       vattu_thieu: kpi.vattu_thieu,

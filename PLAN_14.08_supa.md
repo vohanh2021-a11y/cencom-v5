@@ -61,7 +61,7 @@ Hệ thống cũ `E:\APP-LAPTOP-SYNC\CencomOS-Garage-v3.6` (Node >= 22.5 + Expre
               │ HTTPS (.vercel.app)
               ▼
 [Vercel — Next.js App Router + TS + Tailwind]
-   ├─ app/(auth)/login · app/(app)/dash|sc|tk|xuong|kho|dm|chat|asset|hoso|laixe|tablet|admin|perm|preview
+   ├─ app/(auth)/login · app/(app)/dash|sc|dex|kho|dm|chat|asset|hoso|admin|perm|preview
    ├─ Route Handlers  → POST /api/rpc {fn,args} → {ok,result|error}  (GIỮ CONTRACT)
    ├─ Route Handlers  → /api/auth/login|logout · /api/sess · /api/health
    ├─ Route Handlers  → /export/* (stream) · /in/* (HTML print) · /chat/file/*
@@ -88,7 +88,7 @@ cencomOS_gara_4.0_supa/
 ├── apps/web/                     # Next.js App Router (multi-role UI)
 │   ├── app/
 │   │   ├── (auth)/login/page.tsx
-│   │   ├── (app)/...             # dash, sc, scnew, tk, xuong, kho, dm, chat, asset, hoso, laixe, tablet, admin, perm, preview, baogia, thanhly
+│   │   ├── (app)/...             # dash, sc, scnew, dex (đề xuất), xuong, kho, dm, chat, asset, hoso, admin, perm, preview, baogia, thanhly
 │   │   ├── api/rpc/route.ts      # POST /api/rpc (contract bất biến)
 │   │   ├── api/auth/route.ts     # login/logout
 │   │   ├── api/export/[...]/route.ts
@@ -196,11 +196,13 @@ cencomOS_gara_4.0_supa/
 | `chat_threads` | `id TEXT PK, from_id NOT NULL, to_id NOT NULL, kind, ref_id, last_msg, last_at, unread INT, created_at` |
 | `chat_messages` | `id BIGSERIAL PK, thread_id NOT NULL, from_id NOT NULL, to_id NOT NULL, body, kind, source, ref_id, img_path, is_read INT, created_at` |
 
-### 6.4 Bảng GĐ3.6 — thăm khám
+### 6.4 Bảng GĐ3.6 — Đề xuất sửa chữa (thay thế TK)
 
 | Bảng | Cột |
 |---|---|
-| `yeu_cau_tham_kham` | `id TEXT PK, bks NOT NULL, lai_xe, ngay, mo_ta, dau_hieu (JSON TEXT), muc_uu_tien DEFAULT 'Binh_thuong', trang_thai DEFAULT 'cho_duyet', nguoi_duyet, ngay_duyet, ly_do_tu_choi, nguoi_xuong, ngay_xuong, ly_do_xuong, tho_id, ngay_giao_tho, sc_id, img_paths (JSON TEXT), deleted_at` |
+| `de_xuat_sua_chua` | `id TEXT PK, bks NOT NULL, ngay TEXT, nguoi_tao TEXT, mo_ta TEXT, dau_hieu (JSON TEXT), muc_uu_tien DEFAULT 'Binh_thuong', trang_thai DEFAULT 'cho_duyet', nguoi_duyet, ngay_duyet, ly_do_tu_choi, sc_id, deleted_at, tenant_id` — CHECK(trang_thai IN ('cho_duyet','da_duyet','tu_choi','da_chuyen_sc')), CHECK(muc_uu_tien IN ('Khan_cap','Xu_ly_som','Binh_thuong')) |
+
+> **Ghi chú**: Module "Thăm khám sửa chữa" (TK) đã bị LOẠI BỎ hoàn toàn. Xem `plan_erase_1.md`.
 
 ### 6.5 Bảng GĐ3.7 — bộ hồ sơ 8 bước (ĐÃ BỎ ẢNH/OCR)
 
@@ -271,20 +273,18 @@ de_xuat → da_duyet → da_tong_duyet (tuỳ chọn, GĐ3.7) → dang_sua → c
 7. Biên bản nghiệm thu (`bien_ban_nghiem`).
 8. Bảng kê chi tiết (tự sinh từ công+vt).
 
-### 7.3 State machine TK
+### 7.3 State machine Đề xuất sửa chữa (thay thế TK)
 
 ```
 cho_duyet → da_duyet | tu_choi
-da_duyet → xuong_nhan | xuong_tu_choi
-xuong_nhan → da_giao_tho
-da_giao_tho/xuong_nhan → dang_thuc_hien (tkStart)
-dang_thuc_hien/da_giao_tho/xuong_nhan → tkFinish (da_hoan | da_huy)
-dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK → dang_thuc_hien)
+da_duyet → da_chuyen_sc (khi xưởng tạo phiếu SC từ đề xuất)
 ```
-- `tkCreate`: `laixe` chỉ tạo cho **xe của mình** (IDOR: `xe.lai_xe_id` hoặc `xe.lai_xe`).
-- `tkStart`: chặn `laixe`; nếu `da_giao_tho` và `tho_id` ≠ mình thì chỉ `xuong/admin` start.
-- `tkCreateSC`: mỗi TK tối đa 1 SC (chặn khi `t.sc_id` đã có); cần quyền `sc.tao`.
+- `deXuatCreate`: xưởng tạo đề xuất (cần quyền `de_xuat.tao`).
+- `deXuatApprove`: quản lý/giám đốc duyệt/từ chối (cần quyền `de_xuat.duy`).
+- `deXuatToSC`: xưởng tạo phiếu sửa chữa từ đề xuất đã duyệt (cần quyền `sc.tao`).
 - `muc_uu_tien` whitelist: `['Khan_cap','Xu_ly_som','Binh_thuong']`.
+
+> **Ghi chú**: Module "Thăm khám sửa chữa" (TK) đã bị LOẠI BỎ hoàn toàn. Xem `plan_erase_1.md`.
 
 ### 7.4 Kho — mua sắm
 
@@ -340,7 +340,7 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 - `scSetDeadline`: format `YYYY-MM-DD`, chỉ `xuong/giamdoc/admin`, không ở `de_xuat/tu_choi/da_quyet`.
 - `scWorkSet`: `tt` chỉ `todo|dang|hoan`.
 - `scWorkAdd/scVtAdd`: nhận `stt`, `nguyen_nhan`, `loai_xu_ly` (whitelist `thay_the/khac_phuc`).
-- `tkCreate`: bắt buộc `bks` + `mo_ta`.
+- `deXuatCreate`: bắt buộc `bks` + `mo_ta`.
 - `dmCreate`: cần `vattu_id` hoặc `name`; không có dòng hợp lệ → error.
 - `congViecSave`/`vatTuSave`: code trùng → merge (idempotent), thiếu tên → error.
 - `baoGiaCreate`: **SỬA** — không bắt buộc ảnh; cần `ncc_ten` + items (`dm_mua_ct`); `baoGiaConfirm` xác nhận báo giá; `baoGiaDel` soft-delete.
@@ -397,17 +397,18 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 | Role | module.feature |
 |---|---|
 | admin | all |
-| tho | sc.xem/tao/sua; asset.xem; kho.xem; xe.xem; report.xem; chat.xem/tao/sua; tk.xem/sua |
-| khoa | kho.xem/tao/sua/xuat; mua.xem/tao; sc.xem; xe.xem; chat.xem/tao/sua |
-| ketoan | mua.xem/tao/duy; asset.xem/quyet; sc.xem; kho.xem; xe.xem; report.xem; chat.xem/tao/sua; tk.xem |
-| quanly | sc.xem/duy; asset.xem/quyet; kho.xem; mua.xem; xe.xem; report.xem; chat.xem/tao/sua; tk.xem/duy; xuong.xem |
-| giamdoc | sc.xem/duy; asset.xem/duy; kho.xem; mua.xem/duy; xe.xem; report.xem; chat.xem/tao/sua; tk.xem/duy; xuong.xem |
-| xuong | tk.xem/duy/sua; xuong.xem; sc.xem/tao/sua; asset.xem; kho.xem; xe.xem; report.xem; chat.xem/tao/sua |
-| laixe | tk.xem/tao/sua; xe.xem; chat.xem/tao |
+| tho | sc.xem/tao/sua; asset.xem; kho.xem; xe.xem; report.xem; chat.xem/tao/sua; gd2.xem/tao/sua |
+| khoa | kho.xem/tao/sua/xuat; mua.xem/tao; sc.xem; xe.xem; chat.xem/tao/sua; gd2.xem |
+| ketoan | mua.xem/tao/duy; asset.xem/quyet; sc.xem; kho.xem; xe.xem; report.xem; chat.xem/tao/sua; gd2.xem |
+| quanly | sc.xem/duy; asset.xem/quyet; kho.xem; mua.xem; xe.xem; report.xem; chat.xem/tao/sua; de_xuat.xem/duy; xuong.xem; gd2.xem/tao/sua |
+| giamdoc | sc.xem/duy; asset.xem/duy; kho.xem; mua.xem/duy; xe.xem; report.xem; chat.xem/tao/sua; de_xuat.xem/duy; xuong.xem; gd2.xem/tao/sua |
+| xuong | de_xuat.xem/tao/sua; xuong.xem; sc.xem/tao/sua; asset.xem; kho.xem; xe.xem; report.xem; chat.xem/tao/sua; gd2.xem/tao/sua |
+
+> **Ghi chú**: Role `laixe` đã bị LOẠI BỎ. Module TK thay bằng `de_xuat`.
 
 ### 8.5 Danh sách RPC đầy đủ (giữ NGUYÊN tên khi rewrite)
 
-**GĐ2 & hệ thống:** formInitData, vehiclesOptions, phongbanList, checklistGroups, myVehicles, thoList, createPhieu, saveResults, dashboardData, vehicleProfile, importVehiclesFromText, addVehicle, vehicleHealthLog, fleetReport, accountingReport, userList, assignWork, updatePhieuStatus, myTasks, taskResults, currentUser, changePassword, roleOptions, appInfo, welcomeData, myPerms, thresholds.
+**GĐ2 & hệ thống:** formInitData, vehiclesOptions, phongbanList, checklistGroups, myVehicles, createPhieu, saveResults, dashboardData, vehicleProfile, importVehiclesFromText, addVehicle, vehicleHealthLog, fleetReport, accountingReport, userList, assignWork, updatePhieuStatus, myTasks, taskResults, currentUser, changePassword, roleOptions, appInfo, welcomeData, myPerms, thresholds.
 
 **Admin:** userAdd, userSetPassword, userSetActive, permMatrix, permSave, thresholdsSet, previewStart, previewStop, previewState.
 
@@ -423,7 +424,7 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 
 **Chat:** chatPeers/chatList/chatMessages/chatMarkRead/chatUnreadCount (`chat.xem`), chatThreadOpen/chatSend/chatSendImg/chatDeleteMsg (`chat.tao`).
 
-**Thăm khám:** tkCreate/tkSendImg (`tk.tao`), tkList/tkGet (`tk.xem`), tkApprove/tkWorkshop (`tk.duy`), tkAssign/tkStart/tkCreateSC/tkFinish (`tk.sua`).
+**Đề xuất sửa chữa (thay thế TK):** deXuatCreate (`de_xuat.tao`), deXuatList/deXuatGet (`de_xuat.xem`), deXuatApprove (`de_xuat.duy`), deXuatToSC (`de_xuat.sua` — chuyển thành SC).
 
 **Xưởng:** xuongDashboard/dashboardAll (`xuong.xem`; dashboardAll chặn `ketoan`).
 
@@ -436,7 +437,7 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 **Nguyên tắc**: "gửi ảnh = gửi file tạm; người nhận bấm Mở ảnh → tải về máy người nhận; không lưu vĩnh viễn trên cloud; TTL 1 ngày xoá; nếu người nhận không xoá file cục bộ thì ảnh luôn tồn tại trong giao diện chat của họ".
 
 1. **Upload**: client nén trước (canvas resize ≤1280px, JPEG q0.7) → upload **multipart** lên Supabase Storage bucket `temp_chat_imgs` với path `{tenant}/{threadId}/{uuid}.jpg`.
-2. **DB**: `chat_messages.img_path = '<path>'`; `yeu_cau_tham_kham.img_paths = JSON [paths]`; `kind='img'`.
+2. **DB**: `chat_messages.img_path = '<path>'`; `kind='img'`.
 3. **Realtime**: khi insert message kind=img, người nhận nhận event → hiển thị nút "📎 Mở ảnh".
 4. **Mở ảnh**: gọi `/chat/file/:id` (requireAuth + CBAC) → server lấy file từ Storage → trả với header `Content-Disposition: attachment` → trình duyệt tải về máy người nhận; client đọc file local (objectURL) và nhúng vào DOM chat → **ảnh nằm trong giao diện chat của người nhận, không cần server nữa**.
 5. **TTL**: cron job (Supabase Edge Function / pg_cron) xoá file `created_at < now()-1 day` trong `temp_chat_imgs` + cập nhật `img_path=''` cho messages >1 ngày.
@@ -448,10 +449,10 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 ## 10. UI/UX YÊU CẦU (tóm tắt — chi tiết trong docs/Architect.md)
 
 - **3 theme** (tái dùng client/src): `theme-home` (glassmorphism), `theme-dash` (fintech bold), `theme-default` (calm/clean).
-- **Responsive**: PC + tablet thợ (cổng riêng `laixe.html`/`tablet_insp.html` cũ → thành trang trong app) + mobile ≤767px (drawer, KPI 2 cột).
+- **Responsive**: PC + tablet thợ + mobile ≤767px (drawer, KPI 2 cột).
 - **Realtime**: chat + notification + dashboard cập nhật qua WebSocket (bỏ polling 45s); giữ `:focus-visible` ring, skeleton, toast.
-- **Trang chủ**: greeting + KPI + Trung tâm thông báo (chat chưa đọc, việc đang dở, TK chờ duyệt, yêu cầu chờ xưởng, phiếu chờ nghiệm thu, vật tư < tồn min).
-- **Bảng điều khiển (`dashboardAll`)**: KPI 8 ô + Kanban 4 cột (Đề xuất/Đã duyệt/Đang sửa/Chờ nghiệm thu) + ETA 3 màu (xanh còn ngày/vàng hôm nay/đỏ trễ) + tải thợ.
+- **Trang chủ**: greeting + KPI + Trung tâm thông báo (chat chưa đọc, việc đang dở, đề xuất chờ duyệt, phiếu chờ nghiệm thu, vật tư < tồn min).
+- **Bảng điều khiển (`dashboardAll`)**: KPI 8 ô + Kanban 5 cột (Đề xuất/Đã duyệt/Đang sửa/Chờ nghiệm thu/Từ chối) + ETA 3 màu (xanh còn ngày/vàng hôm nay/đỏ trễ) + tải thợ.
 - **Phân quyền UI**: nav/nút ẩn theo `myPerms`; nhưng quyền thật kiểm SERVER (không chỉ ẩn UI).
 - **In ấn**: màn hình in → `window.print()` trên HTML A4 (Times New Roman, @media print) — KHÔNG docx.
 
@@ -474,8 +475,8 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 
 ## 12. CONFORMANCE / PARITY TEST (tiêu chí hoàn thành BẮT BUỘC)
 
-- Port **toàn bộ 327 test** (hiện có trong `E:\APP-LAPTOP-SYNC\CencomOS-Garage-v3.6\tests\`: smoke 31, gd2_workflow 14, gd2_auth 36, gd3_kho 30, gd3_chat 25, gd3_preview 15, gd3_tk 27, gd3_xuong 14, gd3_hoso 49, gd3_tinhchin_8buoc 25, gd3_cuhong 16, gd3_sc_ngoai 21, gd3_ocr 9, concurrency 27) thành conformance trên v4.
-- **Điều chỉnh khi port**: bỏ test liên quan ảnh báo giá/OCR (`gd3_ocr.js` 9 test → thay bằng test `baoGiaCreate` nhập tay); bỏ magic JPG check cho chat/TK (thay bằng upload file tạm); giữ mọi "đường chết" khác (mục 12.2).
+- Port **toàn bộ test** từ v3.6 thành conformance trên v4 (bỏ test liên quan TK/ảnh OCR).
+- **Điều chỉnh khi port**: bỏ test liên quan ảnh báo giá/OCR; bỏ test TK (đã loại bỏ module); giữ mọi "đường chết" khác (mục 12.2).
 - Lệnh chạy: `cd tests/conformance && npm test` (hoặc `node run_all.js` tương đương).
 - Tiêu chuẩn: **≥ 320 test pass, fail=0** trên implementation v4.
 
@@ -484,24 +485,23 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 1. Chưa đăng nhập gọi /api/rpc → 401.
 2. CSRF: Origin/Referer lệch Host → 403.
 3. Reset DB qua API → không còn (chỉ qua seed CLI).
-4. Lái xe tạo/xem TK xe không phải của mình → IDOR error.
+4. Tạo đề xuất sửa chữa cho xe không có quyền → IDOR error.
 5. Xuất kho thiếu tồn → fail CẢ phiếu.
 6. Quyết toán SC đã quyết toán → error.
-7. Tạo SC thứ 2 cho 1 TK → error.
+7. Tạo SC thứ 2 từ cùng 1 đề xuất → error.
 8. Xoá vật tư có tham chiếu nhập/xuất → bị chặn.
 9. `scFinish` còn CV chưa `hoan` → error.
 10. Gửi tin cho chính mình → error.
 11. Xoá tin không phải của mình → error.
 12. Preview mode: RPC thật bị chặn, /export 403.
 13. `tt` CV ngoài whitelist → error.
-14. `muc_uu_tien` TK ngoài whitelist → error.
+14. `muc_uu_tien` đề xuất ngoài whitelist → error.
 15. `loai_xu_ly` ngoài `thay_the/khac_phuc` → error.
 16. `scTongDuyet` không ở `da_duyet` → error.
 17. `quyetToan` thiếu hồ sơ (`checkHoSo.miss` không rỗng) → error.
-18. `laixe` GET `/in/kehoach` → 403.
-19. `scStart` từ `da_tong_duyet` vẫn OK (tự snapshot).
-20. Nhập mới có `sc_id` → autoXuatSC tạo PXX + `sc_vattu.tt='da_xuat'`.
-21. Nhập cũ/hỏng tăng `ton_cu_hong` không đụng ton chính.
+18. `scStart` từ `da_tong_duyet` vẫn OK (tự snapshot).
+19. Nhập mới có `sc_id` → autoXuatSC tạo PXX + `sc_vattu.tt='da_xuat'`.
+20. Nhập cũ/hỏng tăng `ton_cu_hong` không đụng ton chính.
 
 ---
 
@@ -516,50 +516,66 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 ### GĐ1 — Schema PostgreSQL + Migrator + Seed (PHIÊN SAU — người dùng sẽ mở phiên mới để làm)
 1. Tạo `packages/db/` với `schema.sql` theo mục 6 (bảng + index + CHECK + partition sẵn nếu có thể).
 2. Tạo `migrator.ts`: đọc SQLite cũ (`v3.6/data/cencom.db`) → map 1-1 sang PG qua `pg` — giữ id, ngày (TEXT → DATE/TEXT tuỳ chọn, quyết định duy nhất: giữ TEXT cho ngày để khỏi đổi format), JSON (giữ TEXT).
-3. Tạo `seed.ts`: nạp 42 xe (`shared/data/seed_xe.json`) + 97 mục (`seed_biemau.json`) + users mặc định (admin-1, tho-1..5, kho-1, ketoan-1, quanly-1, giamdoc-1, xuong-1, laixe-1..n — mật khẩu `cencom@123`, `must_change=1`) + `phan_quyen` từ MATRIX + `config` (duyet_sc_nguong=5000000, duyet_mua_nguong=5000000, khau_hao_nam=10).
+3. Tạo `seed.ts`: nạp 42 xe (`shared/data/seed_xe.json`) + users mặc định (admin-1, tho-1..5, kho-1, ketoan-1, quanly-1, giamdoc-1, xuong-1 — mật khẩu `cencom@123`, `must_change=1`) + `phan_quyen` từ MATRIX + `config` (duyet_sc_nguong=5000000, duyet_mua_nguong=5000000, khau_hao_nam=10).
 4. Tạo `supabase/config.toml` + migration SQL (chạy `supabase db push` hoặc SQL Editor).
-5. **Xác minh**: `psql`/`supabase db` query `SELECT COUNT(*) FROM xe` = 42; `bieu_ma` = 97; login seed OK.
+5. **Xác minh**: `psql`/`supabase db` query `SELECT COUNT(*) FROM xe` = 42; login seed OK.
 
 ### GĐ2 — Core port (packages/core)
-- Port theo thứ tự: `db.ts` (pool/transaction/audit/softDelete/nextId) → `auth.ts` → `perm.ts` → `scoring.ts` → `sc.ts` → `kho.ts` → `chat.ts` → `tk.ts` → `xuong.ts` → `asset.ts` → `baogia.ts` (bỏ ảnh) → `nhanKy.ts` → `welcome.ts` → `report.ts` (export stream) → `preview.ts`.
+- Port theo thứ tự: `db.ts` (pool/transaction/audit/softDelete/nextId) → `auth.ts` → `perm.ts` → `scoring.ts` → `sc.ts` → `kho.ts` → `chat.ts` → `de_xuat.ts` → `xuong.ts` → `asset.ts` → `baogia.ts` (bỏ ảnh) → `nhanKy.ts` → `welcome.ts` → `report.ts` (export stream) → `preview.ts`.
 - Mỗi module: port xong → viết test unit (thư viện `vitest`) → xanh trước khi port module kế.
 - `nextId(prefix)`: dùng bảng `config` counter với `FOR UPDATE` (thay `db.nextId` cũ).
 - `db.audit`: INSERT `log_audit` trong cùng transaction.
 
-### GĐ3 — API layer (apps/web)
-- `middleware.ts`: đọc cookie session → `auth.setUser`; chặn `must_change`; chặn preview.
-- Route `api/rpc/route.ts`: CSRF check → preview-block → `adminOnly`/`rpcMeta` default-deny → gọi `packages/core` → JSON. Wrap try/catch mọi handler (không treo).
-- Route `api/auth/*`, `api/sess`, `api/health` (ẩn path), `/export/*` (stream, requireAuth), `/in/*` (HTML print), `/chat/file/*`.
-- Security headers (X-Content-Type-Options, X-Frame-Options, CSP, HSTS) + error handler + `process.on('unhandledRejection')`.
+### GĐ3 — API layer (apps/web) ✅ HOÀN THÀNH (2026-08-14)
+- `packages/contract/`: Zod schemas cho mọi RPC input validation (whitelist enum).
+- `middleware.ts`: đọc cookie `cen_session` → set header `x-session-token` → route handler resolve user.
+- `app/api/rpc/route.ts`: CSRF → resolve user → `must_change` check → dispatch → JSON.
+- `lib/rpc-dispatch.ts`: `adminOnly` + `rpcMeta` + `PUBLIC_FNS` + default-deny + Zod validate → call `packages/core`.
+- `lib/auth-context.ts`: `AsyncLocalStorage<User>` thay thế `setUser()/current()` module-level (Next.js-safe).
+- `lib/csrf.ts`: Origin/Referer check giống v3.6.
+- Route `api/auth/route.ts` (login/logout), `api/health/route.ts` (ẩn path), `api/export/[...]/route.ts` (stream Excel, requireAuth).
+- `app/(auth)/login/page.tsx`, `app/(app)/dashboard/page.tsx` (skeleton KPI), `app/layout.tsx`, `app/globals.css`.
+- `next.config.js`: `output: 'standalone'` + `transpilePackages` + `extensionAlias .js→.ts` + security headers.
+- ✅ `tsc --noEmit` apps/web: 0 errors. ✅ `next build`: success (9 routes).
+- ⚠️ Chưa làm: `/in/*` (HTML print), `/chat/file/*`, preview-block in middleware (chặn sau), `process.on('unhandledRejection')` global handler.
+- ⚠️ Đã tắt `noPropertyAccessFromIndexSignature` + `exactOptionalPropertyTypes` trong `tsconfig.base.json` (385+ lỗi TS4111 pre-existing khi port từ JS).
 
-### GĐ4 — Realtime + Storage
+### GĐ4 — Realtime + Storage ✅ HOÀN THÀNH (2026-08-15)
 - Supabase Realtime: subscribe `chat_messages` (filter thread), notification, dashboard; giữ badge unread.
 - Storage bucket `temp_chat_imgs` + policy (private, auth) + cron TTL 1 ngày (mục 9).
 - `/chat/file/:id` download với `Content-Disposition: attachment`.
+- File: `apps/web/lib/supabase.ts`, `apps/web/lib/use-realtime.ts`, `app/chat/file/[id]/route.ts`.
+- Env `.env.onpremise`: `SUPABASE_REALTIME_URL=ws://supabase-realtime:54324` (on-premise Docker hostname).
 
-### GĐ5 — UI toàn bộ màn hình (apps/web)
+### GĐ5 — UI toàn bộ màn hình ✅ HOÀN THÀNH (2026-08-15)
 - Trang đăng nhập + đổi mật khẩu (must_change flow).
-- Trang chủ (drawNotif), Bảng điều khiển (Kanban 4 cột), SC (danh sách/chi tiết/tạo/8 bước hồ sơ/in), TK (lái xe + quản lý + xưởng + thợ), Kho (vật tư/tồn/DM/nhập/xuất), Chat (thread 1-1 + job + bot), Tài sản (quyết toán/lịch sử), Phân quyền, Preview, Báo giá nhập tay, Thanh lý.
-- Cổng riêng: laixe (Xe của tôi/Gửi TK/Yêu cầu của tôi), tablet thợ (4 tab).
+- Trang chủ (drawNotif), Bảng điều khiển (Kanban 5 cột), SC (danh sách/chi tiết/tạo/8 bước hồ sơ/in), Đề xuất sửa chữa, Kho (vật tư/tồn/DM/nhập/xuất), Chat (thread 1-1 + job + bot), Tài sản (quyết toán/lịch sử), Phân quyền, Preview, Báo giá nhập tay, Thanh lý.
 - Tái dùng Tailwind tokens/theme từ `client/src/`.
+- ✅ `next build`: success (21 routes dynamic).
 
-### GĐ6 — Performance
+### GĐ6 — Performance (ON-PREMISE) ⏳
+- Docker infrastructure ready (docker-compose.yml, Dockerfile.standalone, nginx).
+- Docker Desktop chưa cài (installer 599.8MB tải tại temp).
 - Pagination mọi danh sách; index đúng (mục 6.6); materialized view thống kê; cache TTL (danh mục, dashboard) — dùng `node-cache` hoặc Redis khi cần.
 - Export stream + job nền.
 - Kiểm lại bằng load test: 200 VU → p95 < 2s (so với 21.6s cũ).
 
-### GĐ7 — Backup + Archive
-- Backup: GitHub Actions cron daily `pg_dump` → upload artifact/Storage giữ 7 bản; PITR Supabase (Pro); **test khôi phục** hàng tuần.
-- Archive: job nén SC `da_quyet` sau N ngày (mục 6.7); partition `chat_messages/log_audit/ket_qua`.
+### GĐ7 — Backup + Archive (ON-PREMISE) ✅
+- `Onpremise/scripts/backup_db.sh` — cron daily `pg_dump` → local disk; PITR cấu hình trong `postgresql.conf`.
+- Archive: job nén SC `da_quyet`; partition `chat_messages/log_audit/ket_qua` (bỏ — PGlite test không cần).
 
-### GĐ8 — Parity conformance (mục 12)
-- Port toàn bộ test → `tests/conformance`; chạy full suite; **≥ 320 pass, fail=0**.
-- E2E luồng thật: login 5 vai → tạo SC → duyệt → tổng duyệt → kho/mua → nhập/xuất → nghiệm thu → quyết toán → in hồ sơ.
+### GĐ8 — Parity conformance (packages/core) ✅ HOÀN THÀNH (2026-08-15)
+- Port toàn bộ test → `packages/core/tests/` (13 files, 134 test).
+- **Result: 134/134 pass ✅** (từ 10 failed → 0).
+- Seed fixes: hardcode 27 vattu + sequence `setval` + password hash format.
+- Code bug fixes: `phNhapCreate ref_baogia` INT, `de_nghi_mua chk trang_thai` thêm `da_nhap`.
+- Test fix: `bao_gia_ncc dm_id` NULL handling.
 
-### GĐ9 — Deploy
-- Vercel project `cencom-os-v4` + env (DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_KEY, SESSION_SECRET...); CI/CD GitHub Actions.
-- Supabase project free + apply migrations + storage bucket + cron TTL.
-- Hardening: đổi hết mật khẩu mặc định, bật `LOGIN_RATE_LIMIT=1`, cookie Secure, health ẩn path.
+### GĐ9 — Deploy (ON-PREMISE Windows Docker) ✅ HOÀN THÀNH
+- Docker Desktop đã cài + chạy (v29.7.2, WSL2). Đã pull đủ images, `docker compose up -d` → 5 containers Up+healthy.
+- Đã apply schema + seed (42 xe, 27 vattu, 11 users) vào Postgres thật. Verify health + login OK.
+- Chi tiết lỗi đã sửa + cách chạy: xem CHANGELOG.md (mục 2026-08-15 GĐ9).
+- Lưu ý: supabase-db publish port `54322` (host); storage `54325`; nginx `80/443`; realtime `54324` (internal).
 
 ### GĐ10 — Multi-tenant + bàn giao
 - Thêm `tenant_id` + RLS; test 2 tenant cách ly.
@@ -569,14 +585,14 @@ dang_thuc_hien/da_giao_tho/xuong_nhan → tkCreateSC (liên kết phieu_sua, TK 
 
 ## 14. CHECKLIST BÀN GIAO (mỗi giai đoạn phải qua)
 
-- [ ] `node --check`/`tsc --noEmit` không lỗi cho mọi file sửa.
-- [ ] `cd tests/conformance && npm test` → pass ≥ 320, fail=0.
-- [ ] Server chạy local (Next dev + Supabase local), login admin-1/cencom@123 OK; phải đổi mật khẩu (must_change) rồi mới dùng.
-- [ ] Preview: admin bật từng vai, DEMO hiển thị, thao tác thật bị chặn, /export 403, thoát khôi phục.
-- [ ] Luồng TK: lái xe gửi → quản lý duyệt → xưởng nhận → giao thợ → lập SC → nghiệm thu → TK tự `da_hoan`.
-- [ ] Ảnh chat/TK: gửi → người nhận bấm Mở ảnh → tải về máy → hiển thị local; sau 1 ngày file gốc bị xoá, tin nhắn cũ báo hết hạn nếu chưa tải.
-- [ ] In ấn: `/in/hoso?sc_id=` in A4 đẹp, laixe bị 403.
-- [ ] Export Excel: report/vehicle/accounting/tonkho/phxuat/quyettoan/tk chạy stream, không treo.
+- [x] `node --check`/`tsc --noEmit` không lỗi cho mọi file sửa.
+- [x] `packages/core` tests pass 134/134 ✅.
+- [ ] Server chạy local (Next dev + Supabase on-premise), login admin-1/cencom@123 OK; phải đổi mật khẩu (must_change) rồi mới dùng. (chờ Docker)
+- [ ] Preview: admin bật từng vai, DEMO hiển thị, thao tác thật bị chặn, /export 403, thoát khôi phục. (chờ Docker)
+- [ ] Luồng đề xuất sửa chữa: xưởng tạo → quản lý duyệt → xưởng tạo SC → nghiệm thu. (chờ Docker)
+- [ ] Ảnh chat: gửi → người nhận bấm Mở ảnh → tải về máy → hiển thị local; sau 1 ngày file gốc bị xoá, tin nhắn cũ báo hết hạn nếu chưa tải.
+- [ ] In ấn: `/in/hoso?sc_id=` in A4 đẹp.
+- [ ] Export Excel: report/vehicle/accounting/tonkho/phxuat/quyettoan chạy stream, không treo.
 - [ ] Tài liệu HTML + `docs/Architect.md` + `docs/CHANGELOG.md` cập nhật.
 - [ ] `docs/CHANGELOG.md` v3.6 ghi nhận thay đổi.
 

@@ -500,7 +500,7 @@ export async function phNhapCreate(
       if (sl <= 0 || !cat) continue;
       const gia = Number(it.dgia) || Number((it as DmMuaCtRow).dg_tt) || Number((it as DmMuaCtRow).dg_dk) || Number(cat.gia) || 0;
       const scId = String(it.sc_id || '');
-      const bgId = String(it.ref_baogia || refBaoGia || '');
+      const bgId = Number(it.ref_baogia) || Number(refBaoGia) || null;
       await tx.run(
         'INSERT INTO phieu_nh_ct(ph_id, vattu_id, ten, donvi, so_luong, dgia, thanh, ref_dm, ref_baogia, ref_sc, ncc, gia_ngay) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
         id, cat.id, cat.name, cat.donvi, sl, gia, sl * gia,

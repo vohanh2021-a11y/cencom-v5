@@ -1,100 +1,109 @@
 /**
- * cli.ts — Command line cho GĐ1: apply schema + seed + migrate từ SQLite.
- * Cách chạy:
- *   node --import tsx packages/db/src/cli.ts schema   # apply schema.sql
- *   node --import tsx packages/db/src/cli.ts seed     # seed dữ liệu (idempotent)
- *   node --import tsx packages/db/src/cli.ts migrate  # copy dữ liệu từ SQLite cũ
- *   node --import tsx packages/db/src/cli.ts reset    # TRUNCATE tất cả bảng (dev)
- *
- * Env: DATABASE_URL bắt buộc (trừ `reset` cũng cần). Không hardcode secret.
+ * cli.ts — CLI cho packages/db: schema | seed | migrate | reset.
+ * Chạy: npx tsx packages/db/src/cli.ts <command>
  */
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { seedAll } from './seed.js';
-import { migrateSqliteToPg } from './migrator.js';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCHEMA_PATH = join(__dirname, '..', 'schema.sql');
-const SEED_DIR = join(__dirname, '..', 'seed');
-const DEFAULT_SQLITE = 'E:\\APP-LAPTOP-SYNC\\CencomOS-Garage-v3.6\\data\\cencom.db';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-function requireUrl(): string {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.error('[cli] Thiếu DATABASE_URL. Tạo file .env từ .env.example và set trước khi chạy.');
-    process.exit(1);
-  }
-  return url;
-}
+const { Pool } = pg;
 
-function makePool(): pg.Pool {
-  return new pg.Pool({ connectionString: requireUrl(), max: 5 });
-}
+const DATABASE_URL = process.env['DATABASE_URL'];
+const SQLITE_PATH = process.env['SQLITE_PATH'] || path.join(__dirname, '..', '..', '..', 'CencomOS-Garage-v3.6', 'data', 'cencom.db');
+const ALLOW_RESET = process.env['ALLOW_RESET'] === '1';
 
-async function applySchema(pool: pg.Pool): Promise<void> {
-  const sql = readFileSync(SCHEMA_PATH, 'utf8');
-  await pool.query(sql);
-  console.log('[cli] Đã apply schema:', SCHEMA_PATH);
-}
-
-async function runSeed(pool: pg.Pool): Promise<void> {
-  const { xe, bieu_ma, users } = await seedAll(pool, SEED_DIR);
-  console.log(`[cli] Seed xong: xe=${xe}, bieu_ma=${bieu_ma}, users=${users}`);
-}
-
-async function runMigrate(pool: pg.Pool): Promise<void> {
-  const srcPath = process.env.SQLITE_PATH || DEFAULT_SQLITE;
-  const { results, totalRows } = await migrateSqliteToPg(srcPath, pool);
-  console.log(`[cli] Migrate xong: ${totalRows} dòng trên ${results.length} bảng`);
-  for (const r of results) console.log(`  - ${r.table}: ${r.rows} dòng (${r.cols.length} cột)`);
-}
-
-const ALL_TABLES = [
-  'config', 'phong_ban', 'xe', 'bieu_ma', 'kiem_tra', 'users', 'ket_qua', 'bao_duong',
-  'nhat_ky', 'sessions', 'congviec', 'vattu', 'phieu_sua', 'sc_congviec', 'sc_vattu',
-  'de_nghi_mua', 'dm_mua_ct', 'phieu_nhap', 'phieu_nh_ct', 'phieu_xuat', 'phieu_xuat_ct',
-  'lich_sua', 'phan_quyen', 'log_audit', 'chat_threads', 'chat_messages', 'yeu_cau_tham_kham',
-  'bao_gia_ncc', 'nhan_ky', 'sc_phien_ban', 'vattu_gia_lich_su', 'bien_ban_nghiem',
-  'phieu_kiem_tu', 'ke_hoach_sc', 'phieu_nhap_dm', 'phieu_nhap_thanhly',
-];
-
-async function runReset(pool: pg.Pool): Promise<void> {
-  if (process.env.ALLOW_RESET !== '1') {
-    console.error('[cli] Reset bị chặn. Set ALLOW_RESET=1 để cho phép (chỉ dùng local/dev).');
-    process.exit(1);
-  }
-  await pool.query('BEGIN');
-  try {
-    for (const t of ALL_TABLES) await pool.query(`TRUNCATE TABLE ${t} RESTART IDENTITY CASCADE`);
-    await pool.query('COMMIT');
-    console.log('[cli] Đã truncate tất cả bảng (RESTART IDENTITY).');
-  } catch (e) {
-    await pool.query('ROLLBACK');
-    throw e;
-  }
-}
-
-async function main(): Promise<void> {
-  const cmd = process.argv[2];
-  const pool = makePool();
-  try {
-    switch (cmd) {
-      case 'schema': await applySchema(pool); break;
-      case 'seed': await applySchema(pool); await runSeed(pool); break;
-      case 'migrate': await applySchema(pool); await runMigrate(pool); break;
-      case 'reset': await runReset(pool); break;
-      default:
-        console.error('[cli] Lệnh không hợp lệ. Dùng: schema | seed | migrate | reset');
-        process.exit(1);
-    }
-  } finally {
-    await pool.end();
-  }
-}
-
-main().catch((e) => {
-  console.error('[cli] Lỗi:', e);
+if (!DATABASE_URL) {
+  console.error('��� Thiếu DATABASE_URL trong .env');
   process.exit(1);
+}
+
+const pool = new pg.Pool({
+  connectionString: DATABASE_URL,
+  max: 10,
+  ssl: DATABASE_URL.includes('supabase') ? { rejectUnauthorized: false } : false,
 });
+
+async function runSchema(): Promise<void> {
+  const schemaPath = path.join(__dirname, 'schema.sql');
+  const sql = await fs.readFile(schemaPath, 'utf-8');
+  // Tách các statement bằng ;
+  const statements = sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+  for (const stmt of statements) {
+    if (stmt.startsWith('--')) continue;
+    try {
+      await pool.query(stmt);
+    } catch (e: any) {
+      // Bỏ qua l��i "already exists" cho CREATE
+      if (!e.message.includes('already exists') && !e.message.includes('duplicate')) {
+        console.error('��� Lỗi schema:', e.message);
+        console.error('Statement:', stmt.slice(0, 200));
+        throw e;
+      }
+    }
+  }
+  console.log('��� Schema áp dụng xong');
+}
+
+async function runSeed(): Promise<void> {
+  // Import động seed.ts để tránh circular
+  const { seedAll } = await import('./seed.js');
+  await seedAll();
+}
+
+async function runMigrate(): Promise<void> {
+  const { migrate } = await import('./migrator.js');
+  await migrate();
+}
+
+async function runReset(): Promise<void> {
+  if (!ALLOW_RESET) {
+    console.error('��� Reset bị chặn. Set ALLOW_RESET=1 để cho phép.');
+    process.exit(1);
+  }
+  console.log('��� Reset DB...');
+  // Drop tất cả bảng (trừ extensions)
+  const tables = await pool.query(`
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  `);
+  for (const row of tables.rows) {
+    await pool.query(`DROP TABLE IF EXISTS ${row.tablename} CASCADE`);
+  }
+  console.log('��� Đã drop tất cả bảng');
+  await runSchema();
+  await runSeed();
+  console.log('���� Reset hoàn tất');
+}
+
+const cmd = process.argv[2];
+const commands: Record<string, () => Promise<void>> = {
+  schema: runSchema,
+  seed: runSeed,
+  migrate: runMigrate,
+  reset: runReset,
+};
+
+if (!cmd || !commands[cmd]) {
+  console.log(`
+Usage: npx tsx cli.ts <command>
+
+Commands:
+  schema   - Tạo schema PostgreSQL từ schema.sql
+  seed     - Nạp dữ liệu mẫu (42 xe, 97 biểu mẫu, users, phan_quyen, config)
+  migrate  - Chuyển dữ liệu từ SQLite v3.6 (SQLITE_PATH) → PostgreSQL
+  reset    - Drop all → schema → seed (cần ALLOW_RESET=1)
+  `);
+  process.exit(1);
+}
+
+try {
+  await commands[cmd]();
+  await pool.end();
+} catch (e) {
+  console.error('��� Lỗi:', e);
+  await pool.end();
+  process.exit(1);
+}

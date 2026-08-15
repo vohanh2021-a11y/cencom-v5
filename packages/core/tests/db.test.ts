@@ -66,11 +66,15 @@ describe('db.transaction', () => {
 
 describe('db.softDelete / restoreRow', () => {
   it('soft-delete set deleted_at + ghi audit', async () => {
-    await ctx.db.softDelete('congviec', 'id', 1, 'admin-1');
-    const row = await ctx.db.row<{ deleted_at: string }>('SELECT deleted_at FROM congviec WHERE id=1');
+    // Insert 1 dòng congviec trước khi test softDelete
+    await ctx.db.run("INSERT INTO congviec(name, don_gia, nhom) VALUES('CV test', 100000, 'Test') ON CONFLICT DO NOTHING");
+    const inserted = await ctx.db.row<{ id: number }>('SELECT id FROM congviec WHERE name=$1', 'CV test');
+    const cvId = inserted!.id;
+    await ctx.db.softDelete('congviec', 'id', cvId, 'admin-1');
+    const row = await ctx.db.row<{ deleted_at: string }>('SELECT deleted_at FROM congviec WHERE id=$1', cvId);
     expect(row!.deleted_at).not.toBe('');
-    await ctx.db.restoreRow('congviec', 'id', 1, 'admin-1');
-    const restored = await ctx.db.row<{ deleted_at: string }>('SELECT deleted_at FROM congviec WHERE id=1');
+    await ctx.db.restoreRow('congviec', 'id', cvId, 'admin-1');
+    const restored = await ctx.db.row<{ deleted_at: string }>('SELECT deleted_at FROM congviec WHERE id=$1', cvId);
     expect(restored!.deleted_at).toBe('');
   });
 
@@ -96,8 +100,8 @@ describe('db.helpers', () => {
   });
 
   it('usersList lọc theo role', async () => {
-    const laixes = await ctx.db.usersList('laixe');
-    expect(laixes.length).toBeGreaterThan(0);
-    expect(laixes.every((u) => u.role === 'laixe')).toBe(true);
+    const xuongs = await ctx.db.usersList('xuong');
+    expect(xuongs.length).toBeGreaterThan(0);
+    expect(xuongs.every((u) => u.role === 'xuong')).toBe(true);
   });
 });

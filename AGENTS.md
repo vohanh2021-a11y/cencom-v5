@@ -48,3 +48,43 @@ Bàn giao code PHAI kem muc "⚠️ Lưu ý hệ thống sản xuất (Productio
 - `E:\APP-LAPTOP-SYNC\CencomOS-Garage-v3.6\server\*.js` — mã nguồn port (sc, kho, tk, xuong, chat, asset, baogia, nhanKy, perm, scoring, welcome, report, preview, auth, db).
 - `E:\APP-LAPTOP-SYNC\CencomOS-Garage-v3.6\shared\data\seed_xe.json`, `seed_biemau.json` — seed.
 - `E:\APP-LAPTOP-SYNC\CencomOS-Garage-v3.6\tests\` — 327 test nguồn.
+
+## On-Premise Deployment (Intranet/LAN)
+
+> Dự án hỗ trợ triển khai **on-premise** (Intranet/LAN) thay vì cloud (Vercel + Supabase managed). Xem `Onpremise/plan_onpremise.md` để biết cách triển khai trên Ubuntu Server + Docker.
+
+**Core business logic (`packages/core`, `packages/db/schema.sql`) — KHÔNG THAY ĐỔI** khi chuyển giữa cloud ↔ on-premise. Chỉ thay đổi environment variables + Docker/Nginx config.
+
+### Quick Start On-Premise
+
+```bash
+cd Onpremise
+
+# 1. Tạo certs
+bash scripts/init_certs.sh
+
+# 2. Setup env
+cp .env.onpremise .env.onpremise.local
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# → dán SESSION_SECRET vào .env.onpremise.local
+
+# 3. Build + run
+bash scripts/deploy_local.sh
+
+# 4. Init DB (1 lần)
+bash scripts/init_db.sh
+```
+
+Truy cập: `https://localhost` (self-signed cert — trust để bỏ cảnh báo).
+
+### Files cấu hình on-premise
+
+| File | Mô tả |
+|---|---|
+| `Onpremise/docker-compose.yml` | Supabase stack + Next.js + Nginx |
+| `Onpremise/Dockerfile.standalone` | Build Next.js standalone |
+| `Onpremise/nginx/nginx.conf` | Reverse proxy + WebSocket + SSL |
+| `Onpremise/.env.onpremise` | Template env (copy → `.env.onpremise.local`) |
+| `Onpremise/scripts/*.sh` | Init certs, init DB, deploy, backup, restore |
+| `Onpremise/README.md` | Hướng dẫn chi tiết |
+| `Onpremise/plan_onpremise.md` | Kế hoạch triển khai toàn diện |

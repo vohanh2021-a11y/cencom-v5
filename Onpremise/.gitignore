@@ -1,0 +1,10 @@
+# On-Premise deployment — files that should NOT be committed
+.env.onpremise.local
+nginx/certs/server.crt
+nginx/certs/server.key
+nginx/certs/*.pem
+nginx/certs/*.csr
+volumes/pg_data/*
+volumes/storage_data/*
+backups/
+*.log

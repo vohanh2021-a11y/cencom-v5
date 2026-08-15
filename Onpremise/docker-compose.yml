@@ -1,0 +1,123 @@
+services:
+  # ============== PostgreSQL (Supabase self-hosted) ==============
+  supabase-db:
+    container_name: supabase-db
+    image: supabase/postgres:15.8.1.085
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cencom_pass_2026}
+      POSTGRES_DB: ${DB_NAME:-cencom_os}
+      POSTGRES_USER: ${DB_USER:-postgres}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../supabase/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "54322:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ============== Realtime (WebSocket) ==============
+  supabase-realtime:
+    container_name: supabase-realtime
+    image: supabase/realtime:latest
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    ports:
+      - "54324:54324"
+    environment:
+      DB_DRIVER: postgresql
+      DB_HOST: supabase-db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-cencom_os}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-cencom_pass_2026}
+      REALTIME_AUTH_CLAIM: '{}'
+      API_EXTERNAL_URL: http://localhost:54321
+      APP_NAME: realtime
+      REALTIME_JWT_SECRET: ${JWT_SECRET:-cencom_secret}
+      METRICS_JWT_SECRET: ${JWT_SECRET:-cencom_secret}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-51d58fef0059eb8b1b647adb1273dc606aabaa0f3a427486e77324eca94c9594f3b2f6dbad18da084b2c6bba75224c2e2786587d63aec505604fcb0c4de4057d}
+    command: ["bin/server", "start"]
+
+  # ============== Storage API ==============
+  supabase-storage:
+    container_name: supabase-storage
+    image: supabase/storage-api:latest
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    ports:
+      - "54325:54325"
+    environment:
+      POSTGREST_DB_URI: postgresql://postgres:${DB_PASSWORD:-cencom_pass_2026}@supabase-db:5432/${DB_NAME:-cencom_os}
+      POSTGREST_ADMIN_SERVER_TIMEOUT: 200000
+      PGRST_JWT_SECRET: ${JWT_SECRET:-cencom_secret}
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-cencom_pass_2026}@supabase-db:5432/${DB_NAME:-cencom_os}
+      PGSERVE_EXTERNAL_URL: http://supabase-storage:54325
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      FILE_SIZE_LIMIT: 52428800
+    volumes:
+      - storage_data:/var/lib/storage
+
+  # ============== Next.js App ==============
+  cencom-web:
+    container_name: cencom-web
+    build:
+      context: ..
+      dockerfile: Onpremise/Dockerfile.standalone
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    env_file:
+      - .env.onpremise.local
+      - .env.onpremise
+    environment:
+      # env_file KHÔNG nội suy ${VAR} → override DATABASE_URL bằng giá trị compose nội suy
+      # từ Onpremise/.env (DB_PASSWORD/DB_NAME đã concrete). CHAT_IMG_DIR để lưu ảnh chat.
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@supabase-db:5432/${DB_NAME}
+      - CHAT_IMG_DIR=/app/chat_imgs
+    volumes:
+      - chat_imgs:/app/chat_imgs
+    expose:
+      - "3000"
+
+  # ============== Nginx Reverse Proxy ==============
+  cencom-nginx:
+    container_name: cencom-nginx
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    depends_on:
+      - cencom-web
+      - supabase-realtime
+      - supabase-storage
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    command: ["nginx", "-g", "daemon off;"]
+
+# ============== Persistent Volumes (bind mount to local folders) ==============
+volumes:
+  pg_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./volumes/pg_data
+  storage_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./volumes/storage_data
+  chat_imgs:

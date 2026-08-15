@@ -1,12 +1,11 @@
 /**
  * report.ts — Xuất báo cáo Excel (port server/report.js v3.6).
  * Sử dụng exceljs để tạo .xlsx theo bố cục hành chính – kế toán.
- * Gọi handlers: vehicleHealthLog, fleetReport, accountingReport.
+ * GĐ4 (theo plan_erase_1): đã bỏ các báo cáo sức khỏe xe dùng bảng kiem_tra/ket_qua/bieu_ma
+ * (module Thăm khám TK). Giữ báo cáo tồn kho, phiếu xuất, quyết toán và thêm báo cáo Đề xuất sửa chữa.
  */
 import ExcelJS from 'exceljs';
 import type { Db } from './db.js';
-import * as handlers from './handlers.js';
-import * as scoring from './scoring.js';
 
 export interface ReportApi {
   db: Db;
@@ -16,7 +15,6 @@ const GREEN = '0E5A37';
 const GREEN2 = '12794A';
 const HEAD_TX = 'FFFFFF';
 const LINE = 'D5DDD5';
-const SCALEFILL = { A: 'DCFCE7', B: 'ECFCCB', C: 'FEF9C3', D: 'FFEDD5', E: 'FEE2E2' };
 const FONT = 'Times New Roman';
 
 function applyFont(ws: ExcelJS.Worksheet) {
@@ -31,15 +29,6 @@ function applyFont(ws: ExcelJS.Worksheet) {
 function todayVN(): string {
   const d = new Date();
   return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
-}
-
-function stateInfo(trangThai: string): { label: string; fill: string } {
-  const x = String(trangThai || '').replace(/\s/g, '').toLowerCase();
-  if (x.indexOf('hoạtđộng') >= 0) return { label: 'Hoạt động', fill: 'E4F6EC' };
-  if (x.indexOf('dựphòng') >= 0) return { label: 'Dự phòng', fill: 'EAF3FF' };
-  if (x.indexOf('thanhlý') >= 0) return { label: 'Thanh lý', fill: 'FDE8E7' };
-  if (x.indexOf('bảolý') >= 0 || x.indexOf('bảohành') >= 0) return { label: 'Bảo lý', fill: 'FFF3E0' };
-  return { label: trangThai || '—', fill: 'FFFFFF' };
 }
 
 function borderCell(cell: ExcelJS.Cell) {
@@ -139,253 +128,6 @@ function dmy(iso: string | undefined): string {
   if (!iso) return '';
   const [y, m, d] = String(iso).split('-');
   return (d ? Number(d) : '') + '/' + (m ? Number(m) : '') + '/' + (y || '');
-}
-
-/* ---------- Sheet lý lịch sức khỏe 1 xe ---------- */
-async function makeLylicheSheet(
-  wb: ExcelJS.Workbook,
-  bks: string,
-  api: ReportApi
-) {
-  const h = await handlers.vehicleHealthLog(api, bks);
-  if (!h) return null;
-  const x = await api.db.xeByBks(bks);
-  if (!x) return null;
-
-  const phieu = await Promise.all((await api.db.phieuByBks(bks)).map(async (p) => {
-    const vals: Record<number, string> = {};
-    (await api.db.ketQuaByPhieu(p.id)).forEach((k) => { vals[k.item_id] = k.value; });
-    const score = scoring.scoreVehicle(await api.db.bieuMaGroups(), vals);
-    return {
-      id: p.id, ngay: p.ngay, nguoi: p.nguoi, mode: p.mode,
-      soMuc: Object.keys(vals).length,
-      e: Object.keys(vals).filter((k) => vals[Number(k)] === 'E').length,
-      avg: score.avg
-    };
-  }));
-
-  const ws = wb.addWorksheet('LL_' + bks.replace(/\W+/g, '').slice(0, 18), { views: [{ showGridLines: false }] });
-  ws.columns = [
-    { key: 'a', width: 3 }, { key: 'b', width: 18 }, { key: 'c', width: 6 },
-    { key: 'd', width: 36 }, { key: 'e', width: 10 }, { key: 'f', width: 14 },
-    { key: 'g', width: 12 }, { key: 'h', width: 12 }, { key: 'i', width: 26 }
-  ];
-  const W = ws.columns.length;
-
-  letterhead(ws, W);
-  titleRow(ws, W, 'L�� L��CH S��C KH��E XE',
-    'Biển số ' + x.bks + ' — ' + (x.hang || '') + ' ' + (x.dong || '') + ' — Năm SX ' + (x.nam_sx || '—') + ' — ' + (x.loai_pt || ''));
-
-  // 1. Thông tin xe
-  sectionRow(ws, W, '1. TH��NG TIN XE');
-  [
-    ['Biển số', x.bks, 'Biển số cũ', x.bien_so_cu || '—'],
-    ['Hãng / Dòng', (x.hang || '') + (x.dong ? ' ' + x.dong : ''), 'Loại PT', x.loai_pt || ''],
-    ['Năm sản xuất', x.nam_sx || '—', 'Phòng ban', x.phong_ban || '—'],
-    ['Lái xe', x.lai_xe || '—', 'Trạng thái', x.trang_thai || '—']
-  ].forEach((row) => {
-    const r = ws.addRow([row[0], row[1], row[2], row[3], '', '', '', '', '']);
-    r.getCell(1).font = { bold: true };
-    r.getCell(3).font = { bold: true };
-    [1, 3].forEach((c) => r.getCell(c).alignment = { vertical: 'middle' });
-  });
-
-  // 2. Lịch sử phiếu
-  sectionRow(ws, W, '2. L��CH S�� PHI��U KI��M TRA (' + phieu.length + ' phiếu)');
-  headRow(ws, ['STT', 'Số phiếu', 'Ngày', 'Người lập', 'Chế độ', 'Số mục', 'Mục E', 'Điểm TB', '']);
-  phieu.forEach((p, i) => {
-    const r = ws.addRow([i + 1, p.id, p.ngay || '', p.nguoi || '', p.mode || '', p.soMuc, p.e, p.avg || 0, '']);
-    r.getCell(1).alignment = { horizontal: 'center' };
-    if (p.e) setFill(r.getCell(7), 'FEE2E2');
-    r.eachCell(borderCell);
-  });
-  if (!phieu.length) ws.addRow(['Chưa có phiếu kiểm tra cho xe này.']);
-
-  // 3. Sức khỏe từng bộ phận
-  sectionRow(ws, W, '3. S��C KH��E T��NG B�� PH��N (tổng hợp các lần khám)');
-  headRow(ws, ['STT', 'Hệ thống', 'Mã', 'Mục', 'Số lần', 'Gần nhất', 'Xấu nhất', 'Xu hướng', 'Ghi chú cuối']);
-  let stt = 0;
-  (h.groups as Array<{ name: string; items: Array<Record<string, unknown>> }>).forEach((g) => {
-    (g.items as Array<Record<string, unknown>>).forEach((it) => {
-      stt++;
-      const last = it.last ? (String((it.last as any).value) + ' · ' + ((it.last as any).ngay || '')) : '—';
-      const r = ws.addRow([stt, g.name, it.item_id, it.name, it.count, last, it.worst || '—', it.trend || '—', it.last ? String((it.last as any).ghi_chu || '') : '']);
-      r.getCell(1).alignment = { horizontal: 'center' };
-      r.getCell(3).alignment = { horizontal: 'center' };
-      r.getCell(5).alignment = { horizontal: 'center' };
-      if (it.worst) setFill(r.getCell(7), SCALEFILL[(it.worst as any) as keyof typeof SCALEFILL] || 'FFFFFF');
-      if (it.last && SCALEFILL[((it.last as any).value as any) as keyof typeof SCALEFILL]) setFill(r.getCell(6), SCALEFILL[((it.last as any).value as any) as keyof typeof SCALEFILL]);
-      r.eachCell(borderCell);
-    });
-  });
-
-  ws.addRow([]);
-  const nr = ws.rowCount + 1;
-  ws.mergeCells(nr, 1, nr, W);
-  ws.getCell(nr, 1).value = 'Ghi chú: thang A–E, trong đó E = kém/nguy hiểm cần xử lý ưu tiên.';
-  ws.getCell(nr, 1).font = { italic: true, size: 10, color: { argb: '5E6B7F' } };
-
-signatureBlock(ws, W);
-  applyFont(ws);
-  return (await wb.xlsx.writeBuffer()) as unknown as Buffer<ArrayBufferLike>;
-}
-
-/* ---------- Sheet chi tiết các lần khám ---------- */
-async function chiTietSheet(
-  wb: ExcelJS.Workbook,
-  bks: string,
-  api: ReportApi
-) {
-  const groupNames: Record<number, string> = {};
-  const itemNames: Record<number, string> = {};
-  (await api.db.bieuMaGroups()).forEach((g) => {
-    groupNames[g.group_id] = g.name;
-    g.items.forEach((it) => { itemNames[it.item_id] = it.name; });
-  });
-  const sh = wb.addWorksheet('CHITIET_' + bks.replace(/\W+/g, '').slice(0, 16));
-  sh.columns = [
-    { key: 'a', width: 3 }, { key: 'b', width: 12 }, { key: 'c', width: 11 },
-    { key: 'd', width: 18 }, { key: 'e', width: 5 }, { key: 'f', width: 36 },
-    { key: 'g', width: 8 }, { key: 'h', width: 28 }
-  ];
-  headRow(sh, ['STT', 'Số phiếu', 'Ngày', 'Hệ thống', 'Mã', 'Hạng mục', 'Mức', 'Ghi chú']);
-  let i = 0;
-  (await api.db.ketQuaByBks(bks)).forEach((k) => {
-    i++;
-    const r = sh.addRow([
-      i, k.phieu_id, k.ngay || '', groupNames[k.group_id] || '', k.item_id,
-      itemNames[k.item_id] || ('Mục ' + k.item_id), k.value || '', k.ghi_chu || ''
-    ]);
-    if (SCALEFILL[k.value as keyof typeof SCALEFILL]) setFill(r.getCell(7), SCALEFILL[k.value as keyof typeof SCALEFILL]);
-    r.eachCell(borderCell);
-  });
-  if (i) sh.autoFilter = { from: 'A1', to: 'H' + (i + 1) };
-  applyFont(sh);
-}
-
-/* ---------- Báo cáo đội xe ---------- */
-export async function buildFleetWorkbook(
-  api: ReportApi,
-  bksList: string[]
-): Promise<Buffer<ArrayBufferLike>> {
-  const fr = await handlers.fleetReport(api);
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('T��NG H��P', { views: [{ showGridLines: false }] });
-  const W = 11;
-  ws.columns = [
-    { key: 'a', width: 4 }, { key: 'b', width: 13 }, { key: 'c', width: 11 }, { key: 'd', width: 7 },
-    { key: 'e', width: 5 }, { key: 'f', width: 20 }, { key: 'g', width: 12 }, { key: 'h', width: 7 },
-    { key: 'i', width: 10 }, { key: 'j', width: 8 }, { key: 'k', width: 12 }
-  ];
-
-  letterhead(ws, W);
-  titleRow(ws, W, 'BÁO CÁO T��NH TR��NG Đ��I XE', 'Ngày lập: ' + todayVN() + ' · Phòng Xe máy Thiết bị');
-
-  sectionRow(ws, W, 'T��NG QUAN');
-  const k = fr.kpi as Record<string, unknown>;
-  ws.addRow([k.vehCount + ' xe', k.hoatDong + ' đang hoạt động', k.duPhong + ' dự phòng', k.thanhLy + ' thanh lý', k.phieuCount + ' phiếu KT', k.eTotal + ' mục E tồn', '', '', '', '', '']);
-
-  sectionRow(ws, W, 'PHÂN THEO PH��NG BAN');
-  headRow(ws, ['STT', 'Phòng ban', 'Số xe']);
-  Object.entries(fr.byPhong as Record<string, number>).forEach(([nm, cnt], i) => ws.addRow([i + 1, nm, cnt]));
-
-  sectionRow(ws, W, 'PHÂN THEO HÃNG');
-  headRow(ws, ['STT', 'Hãng', 'Số xe']);
-  Object.entries(fr.byHang as Record<string, number>).forEach(([nm, cnt], i) => ws.addRow([i + 1, nm, cnt]));
-
-  sectionRow(ws, W, 'B��NG T��NH TR��NG T��NG XE');
-  headRow(ws, ['STT', 'BKS', 'Hãng', 'Dòng', 'Năm', 'Phòng ban', 'Trạng thái', 'Phiếu', 'Điểm TB', 'E mới', 'Xu hướng']);
-  let stt = 0;
-  (fr.perVehicle as Array<Record<string, unknown>>).filter((v) => bksList.includes(String(v.bks))).forEach((v) => {
-    stt++;
-    const st = stateInfo(String(v.trang_thai));
-    const r = ws.addRow([stt, v.bks, v.hang, v.dong || '—', v.nam_sx || '', v.phong_ban, st.label, v.soPhieu, v.lastAvg == null ? '—' : v.lastAvg, v.lastE || 0, v.trend]);
-    r.getCell(2).font = { bold: true, color: { argb: GREEN2 } };
-    setFill(r.getCell(7), st.fill);
-    r.eachCell(borderCell);
-  });
-  if (!stt) ws.addRow(['Không có xe trong danh sách đã chọn.']);
-
-  signatureBlock(ws, W);
-  applyFont(ws);
-
-  // Lý lịch từng xe trong cùng file
-  for (const b of bksList) {
-    if (!(await api.db.xeByBks(b))) continue;
-    await makeLylicheSheet(wb, b, api);
-    await chiTietSheet(wb, b, api);
-  }
-  return (await wb.xlsx.writeBuffer()) as unknown as Buffer<ArrayBufferLike>;
-}
-
-/* ---------- Lý lịch 1 xe (file đơn) ---------- */
-export async function buildVehicleWorkbook(
-  api: ReportApi,
-  bks: string
-): Promise<Buffer<ArrayBufferLike>> {
-  const xe = await api.db.xeByBks(bks);
-  if (!xe) throw new Error('Không có xe ' + bks);
-  const wb = new ExcelJS.Workbook();
-  await makeLylicheSheet(wb, bks, api);
-  await chiTietSheet(wb, bks, api);
-  return (await wb.xlsx.writeBuffer()) as unknown as Buffer<ArrayBufferLike>;
-}
-
-/* ---------- Báo cáo kế toán tháng/quý ---------- */
-export async function buildAccountingWorkbook(
-  api: ReportApi,
-  from: string,
-  to: string,
-  group: 'month' | 'quarter'
-): Promise<Buffer<ArrayBufferLike>> {
-  const acct = await handlers.accountingReport(api, { from, to, group });
-  const grpLabel = group === 'quarter' ? 'QU��' : 'THÁNG';
-  const wb = new ExcelJS.Workbook();
-
-  const ws = wb.addWorksheet('K�� TOÁN ' + grpLabel, { views: [{ showGridLines: false }] });
-  const W = 10;
-  ws.columns = [
-    { key: 'a', width: 18 }, { key: 'b', width: 10 }, { key: 'c', width: 8 }, { key: 'd', width: 14 },
-    { key: 'e', width: 9 }, { key: 'f', width: 9 }, { key: 'g', width: 8 }, { key: 'h', width: 9 },
-    { key: 'i', width: 13 }, { key: 'j', width: 6 }
-  ];
-  letterhead(ws, W);
-  titleRow(ws, W, 'BÁO CÁO K�� TOÁN KI��M TRA THEO ' + grpLabel,
-    'Từ ngày ' + (dmy(from) || '…') + ' đến ngày ' + (dmy(to) || '…') + ' · Phòng Xe máy Thiết bị');
-
-  sectionRow(ws, W, 'T��NG H��P S�� PHI��U / M��C ĐÁNH GIÁ');
-  headRow(ws, ['Kỳ', 'Số phiếu', 'Số xe', 'Số mục đánh giá', 'Mục E', 'Mục D', '% E', 'Điểm TB', 'Phiếu hoàn thành', '']);
-  (acct.buckets as Array<Record<string, unknown>>).forEach((b) => {
-    const r = ws.addRow([b.label, b.phieu, b.xe, b.soMuc, b.eCount, b.dCount, b.pctE + '%', b.avg == null ? '—' : b.avg, b.hoanThanh, '']);
-    if (b.eCount) setFill(r.getCell(5), 'FEE2E2');
-    r.eachCell(borderCell);
-  });
-  if (!(acct.buckets as Array<unknown>).length) ws.addRow(['Không có phiếu kiểm tra trong khoảng thời gian này.']);
-  const tot = acct.totals as Record<string, unknown>;
-  const tr = ws.addRow(['Tổng cộng', tot.phieu, tot.xe, tot.soMuc, tot.eCount, tot.dCount, tot.pctE + '%', tot.avg == null ? '—' : tot.avg, tot.hoanThanh, '']);
-  tr.font = { bold: true };
-  tr.eachCell(borderCell);
-
-  // Chi tiết từng phiếu trong kỳ
-  const dt = wb.addWorksheet('CHI TI��T PHI��U');
-  dt.columns = [
-    { key: 'a', width: 4 }, { key: 'b', width: 16 }, { key: 'c', width: 13 }, { key: 'd', width: 11 },
-    { key: 'e', width: 11 }, { key: 'f', width: 14 }, { key: 'g', width: 18 }, { key: 'h', width: 18 },
-    { key: 'i', width: 14 }, { key: 'j', width: 8 }, { key: 'k', width: 7 }, { key: 'l', width: 7 },
-    { key: 'm', width: 9 }
-  ];
-  headRow(dt, ['STT', 'Kỳ', 'Số phiếu', 'BKS', 'Ngày', 'Chế độ', 'Người lập', 'Thợ phụ trách', 'Trạng thái', 'Số mục', 'E', 'D', 'Điểm TB']);
-  (acct.detail as Array<Record<string, unknown>>).forEach((p, i) => {
-    const r = dt.addRow([i + 1, p.periodLabel, p.id, p.bks, dmy(String(p.ngay)), p.mode, p.nguoi, p.assignee, p.trang_thai, p.soMuc, p.eCount, p.dCount, p.avg == null ? '—' : p.avg]);
-    if (p.eCount) setFill(r.getCell(11), 'FEE2E2');
-    r.eachCell(borderCell);
-  });
-  if ((acct.detail as Array<unknown>).length) dt.autoFilter = { from: 'A1', to: 'M' + ((acct.detail as Array<unknown>).length + 1) };
-  applyFont(dt);
-
-  signatureBlock(ws, W);
-  applyFont(ws);
-  return (await wb.xlsx.writeBuffer()) as unknown as Buffer<ArrayBufferLike>;
 }
 
 /* ---------- Báo cáo tồn kho ---------- */
@@ -493,40 +235,34 @@ export async function buildQuyetToanWorkbook(api: ReportApi, scId: string): Prom
   return (await wb.xlsx.writeBuffer()) as unknown as Buffer<ArrayBufferLike>;
 }
 
-/* ---------- Báo cáo yêu cầu thăm khám ---------- */
-const TK_TT_LABEL: Record<string, string> = {
-  'cho_duyet': 'Chờ quản lý duyệt', 'da_duyet': 'Đã duyệt — chờ xưởng', 'tu_choi': 'Quản lý từ chối',
-  'xuong_nhan': 'Xưởng đã nhận', 'xuong_tu_choi': 'Xưởng từ chối', 'da_giao_tho': 'Đã giao th��',
-  'dang_thuc_hien': 'Đang thực hiện', 'da_hoan': 'Hoàn tất', 'da_huy': 'Đã hủy'
+/* ---------- Bao cao De xuat sua chua (thay the bao cao Tham kham) ---------- */
+const DX_TT_LABEL: Record<string, string> = {
+  'cho_duyet': 'Cho duyet', 'da_duyet': 'Da duyet', 'tu_choi': 'Tu choi', 'da_chuyen_sc': 'Da chuyen phieu sua chua'
 };
-const TK_UU_LABEL: Record<string, string> = { Khan_cap: 'Khẩn cấp', Xu_ly_som: 'Xử lý sớm', Binh_thuong: 'Bình thường' };
+const DX_UU_LABEL: Record<string, string> = { Khan_cap: 'Khan cap', Xu_ly_som: 'Xu ly som', Binh_thuong: 'Binh thuong' };
 
-export async function buildTkWorkbook(api: ReportApi): Promise<Buffer<ArrayBufferLike>> {
-  const rows = await api.db.rows<Record<string, unknown>>("SELECT * FROM yeu_cau_tham_kham WHERE deleted_at='' ORDER BY ngay DESC, id DESC");
+export async function buildDeXuatWorkbook(api: ReportApi) {
+  const rows = await api.db.rows("SELECT * FROM de_xuat_sua_chua WHERE deleted_at='' ORDER BY ngay DESC, id DESC");
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Y��U C��U THĂM KHÁM', { views: [{ showGridLines: false }] });
-  const W = 11;
+  const ws = wb.addWorksheet('DE XUAT SUA CHUA', { views: [{ showGridLines: false }] });
+  const W = 10;
   ws.columns = [
-    { key: 'a', width: 14 }, { key: 'b', width: 13 }, { key: 'c', width: 15 }, { key: 'd', width: 11 },
-    { key: 'e', width: 12 }, { key: 'f', width: 14 }, { key: 'g', width: 34 }, { key: 'h', width: 13 },
-    { key: 'i', width: 16 }, { key: 'j', width: 13 }, { key: 'k', width: 13 }, { key: 'l', width: 13 }
+    { key: 'a', width: 14 }, { key: 'b', width: 13 }, { key: 'c', width: 15 }, { key: 'd', width: 18 },
+    { key: 'e', width: 12 }, { key: 'f', width: 40 }, { key: 'g', width: 16 }, { key: 'h', width: 16 }, { key: 'i', width: 16 }, { key: 'j', width: 14 }
   ];
   letterhead(ws, W);
-  titleRow(ws, W, 'BÁO CÁO Y��U C��U THĂM KHÁM S��A CH��A',
-    'Phòng Xe máy Thiết bị · Xuất lúc ' + todayVN());
-  headRow(ws, ['Mã yêu cầu', 'Ngày', 'Biển số', 'Lái xe', '��u tiên', 'Dấu hiệu', 'Mô tả', 'Trạng thái', 'Quản lý duyệt', 'Xưởng', 'Thợ', 'Phiếu SC']);
+  titleRow(ws, W, 'BAO CAO DE XUAT SUA CHUA', 'Phong Xe may Thiet bi . Xuat luc ' + todayVN());
+  headRow(ws, ['Ma de xuat', 'Ngay', 'Bien so', 'Nguoi tao', 'Uu tien', 'Mo ta', 'Trang thai', 'Nguoi duyet', 'Ngay duyet', 'Phieu SC']);
   rows.forEach((r) => {
-    let dauHieu = '';
-    try { const a = JSON.parse(String(r.dau_hieu || '[]')); dauHieu = (Array.isArray(a) ? a : []).join(', '); } catch (e) { dauHieu = ''; }
     const row = ws.addRow([
-      r.id, dmy(String(r.ngay)), r.bks, r.lai_xe, TK_UU_LABEL[String(r.muc_uu_tien)] || String(r.muc_uu_tien) || '',
-      dauHieu, String(r.mo_ta || ''), TK_TT_LABEL[String(r.trang_thai)] || String(r.trang_thai),
-      String(r.nguoi_duyet || ''), String(r.nguoi_xuong || ''), String(r.tho_id || ''), String(r.sc_id || '')
+      r.id, dmy(String(r.ngay)), r.bks, String(r.nguoi_tao || ""), DX_UU_LABEL[String(r.muc_uu_tien)] || String(r.muc_uu_tien) || "",
+      String(r.mo_ta || ""), DX_TT_LABEL[String(r.trang_thai)] || String(r.trang_thai),
+      String(r.nguoi_duyet || ""), dmy(String(r.ngay_duyet || "")), String(r.sc_id || "")
     ]);
     row.eachCell(borderCell);
   });
-  if (rows.length) ws.autoFilter = { from: 'A1', to: 'L' + (rows.length + 1) };
+  if (rows.length) ws.autoFilter = { from: 'A1', to: 'J' + (rows.length + 1) };
   signatureBlock(ws, W);
   applyFont(ws);
-  return (await wb.xlsx.writeBuffer()) as unknown as Buffer<ArrayBufferLike>;
+  return (await wb.xlsx.writeBuffer());
 }

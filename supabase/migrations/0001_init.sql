@@ -1,485 +1,488 @@
--- =====================================================================
--- cencomOS-Garage v4.0 — SCHEMA PostgreSQL (Supabase)
--- Nguồn: PLAN_14.08_supa.md mục 6 (quyết định duy nhất) + server/db.js v3.6
--- Quy ước:
---   * Giữ tên bảng/cột lowercase (mặc định PG).
---   * id TEXT PK định dạng `PREFIX-000001` (KHÔNG ép VARCHAR(12) — có
---     bảng dùng id dài hơn, ví dụ chat_threads 'CHT-...').
---   * Soft-delete: `deleted_at TEXT DEFAULT ''` (không NULL).
---   * Ngày tháng: GIỮ TEXT `YYYY-MM-DD` (quyết định duy nhất — không đổi format).
---   * JSON lưu TEXT.
---   * Đã BỎ ảnh báo giá/AI-OCR khỏi bao_gia_ncc (quyết định #9).
---   * Multi-tenant: tenant_id + RLS thêm ở GĐ10 (mục 6.8) — không làm ở GĐ1.
--- =====================================================================
+-- schema.sql — PostgreSQL schema for cencomOS_gara_4.0_supa (GĐ1)
+-- Nguồn: server/db.js (SCHEMA + MIGRATIONS) + docs/rewrite/03_DATA_SCHEMA.md
+-- Gi�� tên bảng/cột lowercase (mặc định PG), id `PREFIX-000001` (VARCHAR(12) PK), soft-delete `deleted_at TEXT DEFAULT ''`, JSON lưu TEXT.
+-- Bỏ ảnh/OCR khỏi `bao_gia_ncc`. Thêm `tenant_id` cho multi-tenant (mặc định 'c1').
 
--- ============ GĐ2 — KIỂM ĐỊNH ============
+-- ===================== EXTENSIONS =====================
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- gen_random_uuid, scrypt
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";   -- fuzzy search
+-- CREATE EXTENSION IF NOT EXISTS "pg_partman"; -- partition management (GĐ7)
 
+-- ===================== HÀM TI��N ÍCH =====================
+-- nextId counter (dùng bảng config counter)
+CREATE OR REPLACE FUNCTION next_id(prefix TEXT) RETURNS TEXT AS $$
+DECLARE
+  counter BIGINT;
+  new_id TEXT;
+BEGIN
+  -- Lấy và tăng counter trong transaction FOR UPDATE
+  SELECT value::BIGINT + 1 INTO counter
+  FROM config
+  WHERE key = 'counter_' || prefix
+  FOR UPDATE;
+  
+  IF counter IS NULL THEN
+    counter := 1;
+  END IF;
+  
+  new_id := prefix || '-' || LPAD(counter::TEXT, 6, '0');
+  
+  INSERT INTO config (key, value)
+  VALUES ('counter_' || prefix, counter::TEXT)
+  ON CONFLICT (key) DO UPDATE SET value = counter::TEXT;
+  
+  RETURN new_id;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+-- today() trả về YYYY-MM-DD
+CREATE OR REPLACE FUNCTION today() RETURNS TEXT AS $$
+SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD');
+$$ LANGUAGE sql STABLE;
+
+-- now_stamp() trả về YYYY-MM-DD HH24:MI:SS
+CREATE OR REPLACE FUNCTION now_stamp() RETURNS TEXT AS $$
+SELECT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS');
+$$ LANGUAGE sql STABLE;
+
+-- ===================== B��NG C��U H��NH =====================
 CREATE TABLE IF NOT EXISTS config (
-  key   TEXT PRIMARY KEY,
+  key TEXT PRIMARY KEY,
   value TEXT
 );
 
+-- ===================== B��NG GĐ2 (KI��M Đ��NH) =====================
 CREATE TABLE IF NOT EXISTS phong_ban (
-  id         TEXT PRIMARY KEY,
-  code       TEXT,
-  name       TEXT,
-  note       TEXT,
+  id TEXT PRIMARY KEY,
+  code TEXT,
+  name TEXT,
+  note TEXT,
   deleted_at TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS xe (
-  id           TEXT PRIMARY KEY,
-  bks          TEXT UNIQUE,
-  bien_so_cu   TEXT,
-  hang         TEXT,
-  dong         TEXT,
-  nam_sx       INTEGER,
-  lai_xe       TEXT,
-  danh_gia_pct REAL,
-  phong_ban    TEXT,
-  trang_thai   TEXT,
-  loai_pt      TEXT,
-  ghi_chu      TEXT,
-  nguyen_gia   REAL DEFAULT 0,
-  lai_xe_id    TEXT DEFAULT '',
-  deleted_at   TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS bieu_ma (
-  item_id    INTEGER PRIMARY KEY,
-  group_id   INTEGER,
-  group_name TEXT,
-  group_short TEXT,
-  item_name  TEXT,
-  priority   TEXT,
-  deleted_at TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS kiem_tra (
-  id         TEXT PRIMARY KEY,
-  bks        TEXT,
-  mode       TEXT,
-  ngay       TEXT,
-  nguoi      TEXT,
+  id TEXT PRIMARY KEY,
+  bks TEXT UNIQUE,
+  bien_so_cu TEXT,
+  hang TEXT,
+  dong TEXT,
+  nam_sx INT,
+  lai_xe TEXT,
+  phong_ban TEXT,
   trang_thai TEXT,
-  ghi_chu    TEXT,
-  assignee   TEXT DEFAULT '',
-  deadline   TEXT DEFAULT '',
-  done_at    TEXT DEFAULT '',
-  deleted_at TEXT DEFAULT ''
+  loai_pt TEXT,
+  ghi_chu TEXT,
+  nguyen_gia REAL DEFAULT 0,
+  lai_xe_id TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS users (
-  id          TEXT PRIMARY KEY,
-  name        TEXT,
-  role        TEXT,
-  phone       TEXT,
-  pass_hash   TEXT,
-  active      INTEGER DEFAULT 1,
-  must_change INTEGER DEFAULT 0,
-  phong_ban   TEXT DEFAULT '',
-  deleted_at  TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS ket_qua (
-  id         TEXT PRIMARY KEY,
-  phieu_id   TEXT,
-  bks        TEXT,
-  item_id    INTEGER,
-  group_id   INTEGER,
-  value      TEXT,
-  ghi_chu    TEXT,
-  deleted_at TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS bao_duong (
-  id          TEXT PRIMARY KEY,
-  bks         TEXT,
-  loai        TEXT,
-  chu_ky_ngay INTEGER,
-  lan_cuoi    TEXT,
-  lan_sau     TEXT,
-  canh_bao    TEXT,
-  deleted_at  TEXT DEFAULT ''
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  role TEXT,
+  phone TEXT,
+  pass_hash TEXT,
+  active INT DEFAULT 1,
+  must_change INT DEFAULT 0,
+  phong_ban TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS nhat_ky (
-  id        BIGSERIAL PRIMARY KEY,
-  thoi_gian TEXT,
-  noi_dung  TEXT,
-  nguoi     TEXT
+  id BIGSERIAL PRIMARY KEY,
+  thoi_gian TIMESTAMPTZ DEFAULT NOW(),
+  noi_dung TEXT,
+  nguoi TEXT,
+  tenant_id TEXT DEFAULT 'c1'
 );
 
--- Session: created_at/expires_at dùng TIMESTAMPTZ (khác SQLite epoch integer)
 CREATE TABLE IF NOT EXISTS sessions (
-  token      TEXT PRIMARY KEY,
-  user_id    TEXT,
-  created_at TIMESTAMPTZ DEFAULT now(),
+  token TEXT PRIMARY KEY,
+  user_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   expires_at TIMESTAMPTZ
 );
 
--- ============ GĐ3 — SỬA CHỮA, VẬT TƯ/KHO, TÀI SẢN, QUYỀN, AUDIT ============
-
+-- ===================== B��NG GĐ3 (S��A CH��A/KHO/TÀI S��N/QUY��N/AUDIT) =====================
 CREATE TABLE IF NOT EXISTS congviec (
-  id         BIGSERIAL PRIMARY KEY,
-  code       TEXT UNIQUE,
-  name       TEXT,
-  nhom       TEXT DEFAULT '',
-  donvi      TEXT DEFAULT '',
-  don_gia    REAL DEFAULT 0,
-  mo_ta      TEXT DEFAULT '',
-  active     INTEGER DEFAULT 1,
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT UNIQUE,
+  name TEXT,
+  nhom TEXT,
+  donvi TEXT,
+  don_gia REAL,
+  mo_ta TEXT,
+  active INT DEFAULT 1,
   deleted_at TEXT DEFAULT '',
-  gio_cong   REAL DEFAULT 0
+  gio_cong REAL,
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS vattu (
-  id          BIGSERIAL PRIMARY KEY,
-  code        TEXT UNIQUE,
-  name        TEXT,
-  nhom        TEXT DEFAULT '',
-  donvi       TEXT DEFAULT '',
-  gia         REAL DEFAULT 0,
-  ton         REAL DEFAULT 0,
-  ton_min     REAL DEFAULT 0,
-  active      INTEGER DEFAULT 1,
-  deleted_at  TEXT DEFAULT '',
-  ton_cu_hong REAL DEFAULT 0
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT UNIQUE,
+  name TEXT,
+  nhom TEXT,
+  donvi TEXT,
+  gia REAL,
+  ton REAL,
+  ton_min REAL,
+  active INT DEFAULT 1,
+  deleted_at TEXT DEFAULT '',
+  ton_cu_hong REAL DEFAULT 0,
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS phieu_sua (
-  id            TEXT PRIMARY KEY,
-  bks           TEXT,
-  phieu_kt      TEXT DEFAULT '',
-  nguoi_lap     TEXT DEFAULT '',
-  ngay          TEXT DEFAULT '',
-  mo_ta         TEXT DEFAULT '',
-  trang_thai    TEXT DEFAULT 'de_xuat',
-  nguoi_duyet   TEXT DEFAULT '',
-  ngay_duyet    TEXT DEFAULT '',
-  ly_do_tu_choi TEXT DEFAULT '',
-  nguoi_nghiem  TEXT DEFAULT '',
-  ngay_nghiem   TEXT DEFAULT '',
-  tong_cong     REAL DEFAULT 0,
-  tong_vt       REAL DEFAULT 0,
-  tong          REAL DEFAULT 0,
-  ghi_chu       TEXT DEFAULT '',
-  deleted_at    TEXT DEFAULT '',
-  tk_id         TEXT DEFAULT '',
-  ngay_du_kien  TEXT DEFAULT '',
-  ngay_bat_dau  TEXT DEFAULT '',
-  tinh_trang_pt TEXT DEFAULT '',
-  la_sua_ngoai  INTEGER DEFAULT 0,
-  don_vi_ngoai  TEXT DEFAULT '',
-  CONSTRAINT chk_phieu_sua_trang_thai
-    CHECK (trang_thai IN ('', 'de_xuat', 'da_duyet', 'da_tong_duyet', 'dang_sua',
-                          'cho_nghiem', 'da_hoan', 'da_quyet', 'tu_choi'))
+  id TEXT PRIMARY KEY,
+  bks TEXT,
+  phieu_kt TEXT,
+  nguoi_lap TEXT,
+  ngay TEXT,
+  mo_ta TEXT,
+  trang_thai TEXT DEFAULT 'de_xuat',
+  nguoi_duyet TEXT,
+  ngay_duyet TEXT,
+  ly_do_tu_choi TEXT,
+  nguoi_nghiem TEXT,
+  ngay_nghiem TEXT,
+  tong_cong REAL,
+  tong_vt REAL,
+  tong REAL,
+  ghi_chu TEXT,
+  deleted_at TEXT DEFAULT '',
+  de_xuat_id TEXT,
+  ngay_du_kien TEXT,
+  ngay_bat_dau TEXT,
+  tinh_trang_pt TEXT,
+  la_sua_ngoai INT DEFAULT 0,
+  don_vi_ngoai TEXT,
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_phieu_sua_trang_thai CHECK (trang_thai IN (
+    'de_xuat','da_duyet','da_tong_duyet','dang_sua','cho_nghiem','da_hoan','da_quyet','tu_choi'
+  ))
 );
 
 CREATE TABLE IF NOT EXISTS sc_congviec (
-  id          BIGSERIAL PRIMARY KEY,
-  sc_id       TEXT,
-  congviec_id INTEGER DEFAULT 0,
-  ten         TEXT DEFAULT '',
-  donvi       TEXT DEFAULT '',
-  so_luong    REAL DEFAULT 1,
-  don_gia     REAL DEFAULT 0,
-  thanh       REAL DEFAULT 0,
-  ghi_chu     TEXT DEFAULT '',
-  tho_id      TEXT DEFAULT '',
-  tt          TEXT DEFAULT 'todo',
-  gio_cong    REAL DEFAULT 0,
-  stt         INTEGER DEFAULT 0,
-  nguyen_nhan TEXT DEFAULT '',
-  loai_xu_ly  TEXT DEFAULT '',
-  deleted_at  TEXT DEFAULT '',
-  CONSTRAINT chk_sc_congviec_tt CHECK (tt IN ('', 'todo', 'dang', 'hoan')),
-  CONSTRAINT chk_sc_congviec_loai_xu_ly CHECK (loai_xu_ly IN ('', 'thay_the', 'khac_phuc'))
+  id BIGSERIAL PRIMARY KEY,
+  sc_id TEXT NOT NULL,
+  congviec_id INT,
+  ten TEXT,
+  donvi TEXT,
+  so_luong REAL DEFAULT 1,
+  don_gia REAL,
+  thanh REAL,
+  ghi_chu TEXT,
+  tho_id TEXT,
+  tt TEXT DEFAULT 'todo',
+  gio_cong REAL,
+  stt INT,
+  nguyen_nhan TEXT,
+  loai_xu_ly TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_sc_congviec_tt CHECK (tt IN ('todo','dang','hoan')),
+  CONSTRAINT chk_sc_congviec_loai_xu_ly CHECK (loai_xu_ly IN ('thay_the','khac_phuc'))
 );
 
 CREATE TABLE IF NOT EXISTS sc_vattu (
-  id          BIGSERIAL PRIMARY KEY,
-  sc_id       TEXT NOT NULL,
-  vattu_id    INTEGER DEFAULT 0,
-  ten         TEXT DEFAULT '',
-  donvi       TEXT DEFAULT '',
-  so_luong    REAL DEFAULT 0,
-  gd_dk       REAL DEFAULT 0,
-  gd_tt       REAL DEFAULT 0,
-  thanh       REAL DEFAULT 0,
-  tt          TEXT DEFAULT 'can_mua',
-  stt         INTEGER DEFAULT 0,
-  nguyen_nhan TEXT DEFAULT '',
-  loai_xu_ly  TEXT DEFAULT '',
-  bao_gia_id  TEXT DEFAULT '',
-  ncc         TEXT DEFAULT '',
-  gia_ngay    TEXT DEFAULT '',
-  deleted_at  TEXT DEFAULT '',
-  CONSTRAINT chk_sc_vattu_tt CHECK (tt IN ('', 'can_mua', 'da_mua', 'da_xuat')),
-  CONSTRAINT chk_sc_vattu_loai_xu_ly CHECK (loai_xu_ly IN ('', 'thay_the', 'khac_phuc'))
+  id BIGSERIAL PRIMARY KEY,
+  sc_id TEXT NOT NULL,
+  vattu_id INT,
+  ten TEXT,
+  donvi TEXT,
+  so_luong REAL,
+  gd_dk REAL,
+  gd_tt REAL,
+  thanh REAL,
+  tt TEXT DEFAULT 'can_mua',
+  stt INT,
+  nguyen_nhan TEXT,
+  loai_xu_ly TEXT,
+  ncc TEXT,
+  gia_ngay REAL,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_sc_vattu_tt CHECK (tt IN ('can_mua','da_mua','da_xuat')),
+  CONSTRAINT chk_sc_vattu_loai_xu_ly CHECK (loai_xu_ly IN ('thay_the','khac_phuc'))
 );
 
 CREATE TABLE IF NOT EXISTS de_nghi_mua (
-  id            TEXT PRIMARY KEY,
-  nguoi_lap     TEXT DEFAULT '',
-  ngay          TEXT DEFAULT '',
-  trang_thai    TEXT DEFAULT 'cho_duyet',
-  nguoi_duyet   TEXT DEFAULT '',
-  ngay_duyet    TEXT DEFAULT '',
-  ly_do_tu_choi TEXT DEFAULT '',
-  tong          REAL DEFAULT 0,
-  ghi_chu       TEXT DEFAULT '',
-  deleted_at    TEXT DEFAULT '',
-  CONSTRAINT chk_de_nghi_mua_trang_thai
-    CHECK (trang_thai IN ('', 'cho_duyet', 'da_duyet', 'tu_choi', 'da_nhap'))
+  id TEXT PRIMARY KEY,
+  nguoi_lap TEXT,
+  ngay TEXT,
+  trang_thai TEXT DEFAULT 'cho_duyet',
+  nguoi_duyet TEXT,
+  ngay_duyet TEXT,
+  ly_do_tu_choi TEXT,
+  tong REAL,
+  ghi_chu TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_de_nghi_mua_trang_thai CHECK (trang_thai IN ('cho_duyet','da_duyet','tu_choi'))
 );
 
 CREATE TABLE IF NOT EXISTS dm_mua_ct (
-  id         BIGSERIAL PRIMARY KEY,
-  dm_id      TEXT,
-  vattu_id   INTEGER DEFAULT 0,
-  ten        TEXT DEFAULT '',
-  donvi      TEXT DEFAULT '',
-  so_luong   REAL DEFAULT 0,
-  dg_dk      REAL DEFAULT 0,
-  dg_tt      REAL DEFAULT 0,
-  tt         TEXT DEFAULT 'cho_duyet',
-  sc_id      TEXT DEFAULT '',
-  deleted_at TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  dm_id TEXT NOT NULL,
+  vattu_id INT,
+  ten TEXT,
+  donvi TEXT,
+  so_luong REAL,
+  dg_dk REAL,
+  dg_tt REAL,
+  tt TEXT DEFAULT 'cho_duyet',
+  sc_id TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_dm_mua_ct_tt CHECK (tt IN ('cho_duyet','da_duyet','tu_choi','da_nhap'))
 );
 
 CREATE TABLE IF NOT EXISTS phieu_nhap (
-  id           TEXT PRIMARY KEY,
-  ngay         TEXT DEFAULT '',
-  nguoi_lap    TEXT DEFAULT '',
-  nha_cc       TEXT DEFAULT '',
-  nguoi_duyet  TEXT DEFAULT '',
-  ref_dm       TEXT DEFAULT '',
-  tong         REAL DEFAULT 0,
-  ghi_chu      TEXT DEFAULT '',
-  deleted_at   TEXT DEFAULT '',
-  loai_nhap    TEXT DEFAULT 'moi',
-  nguoi_giao   TEXT DEFAULT '',
-  ncc_dia_chi  TEXT DEFAULT '',
-  ncc_sdt      TEXT DEFAULT '',
-  CONSTRAINT chk_phieu_nhap_loai_nhap CHECK (loai_nhap IN ('', 'moi', 'cu_hong'))
+  id TEXT PRIMARY KEY,
+  ngay TEXT,
+  nguoi_lap TEXT,
+  nha_cc TEXT,
+  nguoi_duyet TEXT,
+  ref_dm TEXT,
+  tong REAL,
+  ghi_chu TEXT,
+  deleted_at TEXT DEFAULT '',
+  loai_nhap TEXT DEFAULT 'moi',
+  nguoi_giao TEXT,
+  ncc_dia_chi TEXT,
+  ncc_sdt TEXT,
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_phieu_nhap_loai_nhap CHECK (loai_nhap IN ('moi','cu_hong'))
 );
 
 CREATE TABLE IF NOT EXISTS phieu_nh_ct (
-  id          BIGSERIAL PRIMARY KEY,
-  ph_id       TEXT,
-  vattu_id    INTEGER DEFAULT 0,
-  ten         TEXT DEFAULT '',
-  donvi       TEXT DEFAULT '',
-  so_luong    REAL DEFAULT 0,
-  dgia        REAL DEFAULT 0,
-  thanh       REAL DEFAULT 0,
-  ref_dm      TEXT DEFAULT '',
-  ref_baogia  TEXT DEFAULT '',
-  ref_sc      TEXT DEFAULT '',
-  ncc         TEXT DEFAULT '',
-  gia_ngay    TEXT DEFAULT '',
-  deleted_at  TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  ph_id TEXT NOT NULL,
+  vattu_id INT,
+  ten TEXT,
+  donvi TEXT,
+  so_luong REAL,
+  dgia REAL,
+  thanh REAL,
+  ref_dm TEXT,
+  ref_baogia INT,
+  ref_sc TEXT,
+  ncc TEXT,
+  gia_ngay REAL,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS phieu_xuat (
-  id          TEXT PRIMARY KEY,
-  ngay        TEXT DEFAULT '',
-  nguoi_lap   TEXT DEFAULT '',
-  ref_sc      TEXT DEFAULT '',
-  ghi_chu     TEXT DEFAULT '',
-  deleted_at  TEXT DEFAULT '',
-  nguoi_nhan  TEXT DEFAULT '',
-  loai_xuat   TEXT DEFAULT 'dung',
-  CONSTRAINT chk_phieu_xuat_loai_xuat CHECK (loai_xuat IN ('', 'dung', 'cu_hong'))
+  id TEXT PRIMARY KEY,
+  ngay TEXT,
+  nguoi_lap TEXT,
+  ref_sc TEXT,
+  ghi_chu TEXT,
+  deleted_at TEXT DEFAULT '',
+  nguoi_nhan TEXT,
+  loai_xuat TEXT DEFAULT 'dung',
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_phieu_xuat_loai_xuat CHECK (loai_xuat IN ('dung','cu_hong'))
 );
 
 CREATE TABLE IF NOT EXISTS phieu_xuat_ct (
-  id          BIGSERIAL PRIMARY KEY,
-  ph_id       TEXT,
-  vattu_id    INTEGER DEFAULT 0,
-  ten         TEXT DEFAULT '',
-  donvi       TEXT DEFAULT '',
-  so_luong    REAL DEFAULT 0,
-  dgia        REAL DEFAULT 0,
-  thanh       REAL DEFAULT 0,
-  ref_sc      TEXT DEFAULT '',
-  ncc         TEXT DEFAULT '',
-  gia_ngay    TEXT DEFAULT '',
-  deleted_at  TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  ph_id TEXT NOT NULL,
+  vattu_id INT,
+  ten TEXT,
+  donvi TEXT,
+  so_luong REAL,
+  dgia REAL,
+  thanh REAL,
+  ref_sc TEXT,
+  ncc TEXT,
+  gia_ngay REAL,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS lich_sua (
-  id         BIGSERIAL PRIMARY KEY,
-  sc_id      TEXT,
-  bks        TEXT DEFAULT '',
-  ngay       TEXT DEFAULT '',
-  tong_cong  REAL DEFAULT 0,
-  tong_vt    REAL DEFAULT 0,
-  tong       REAL DEFAULT 0,
-  nguoi      TEXT DEFAULT '',
-  ghi_chu    TEXT DEFAULT '',
-  deleted_at TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  sc_id TEXT NOT NULL,
+  bks TEXT,
+  ngay TEXT,
+  tong_cong REAL,
+  tong_vt REAL,
+  tong REAL,
+  nguoi TEXT,
+  ghi_chu TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS phan_quyen (
-  role    TEXT,
-  module  TEXT,
+  role TEXT,
+  module TEXT,
   feature TEXT,
   PRIMARY KEY (role, module, feature)
 );
 
 CREATE TABLE IF NOT EXISTS log_audit (
-  id        BIGSERIAL PRIMARY KEY,
-  thoi_gian TEXT DEFAULT '',
-  nguoi     TEXT DEFAULT '',
-  bang      TEXT DEFAULT '',
-  id_dong   TEXT DEFAULT '',
-  hanh_vi   TEXT DEFAULT '',
-  noi_dung  TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  thoi_gian TIMESTAMPTZ DEFAULT NOW(),
+  nguoi TEXT,
+  bang TEXT,
+  id_dong TEXT,
+  hanh_vi TEXT,
+  noi_dung TEXT,
+  tenant_id TEXT DEFAULT 'c1'
 );
 
--- ============ GĐ3 — CHAT / GIAO VIỆC NỘI BỘ ============
-
+-- ===================== B��NG CHAT =====================
 CREATE TABLE IF NOT EXISTS chat_threads (
-  id         TEXT PRIMARY KEY,
-  from_id    TEXT NOT NULL,
-  to_id      TEXT NOT NULL,
-  kind       TEXT DEFAULT 'text',
-  ref_id     TEXT DEFAULT '',
-  last_msg   TEXT DEFAULT '',
-  last_at    TEXT DEFAULT '',
-  unread     INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT ''
+  id TEXT PRIMARY KEY,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  kind TEXT,
+  ref_id TEXT,
+  last_msg TEXT,
+  last_at TIMESTAMPTZ DEFAULT NOW(),
+  unread INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
-  id         BIGSERIAL PRIMARY KEY,
-  thread_id  TEXT NOT NULL,
-  from_id    TEXT NOT NULL,
-  to_id      TEXT NOT NULL,
-  body       TEXT DEFAULT '',
-  kind       TEXT DEFAULT 'text',
-  source     TEXT DEFAULT 'user',
-  ref_id     TEXT DEFAULT '',
-  img_path   TEXT DEFAULT '',
-  is_read    INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  body TEXT,
+  kind TEXT,
+  source TEXT,
+  ref_id TEXT,
+  img_path TEXT,
+  is_read INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  tenant_id TEXT DEFAULT 'c1'
 );
 
--- ============ GĐ3.6 — YÊU CẦU THĂM KHÁM TỪ LÁI XE ============
-
-CREATE TABLE IF NOT EXISTS yeu_cau_tham_kham (
-  id            TEXT PRIMARY KEY,
-  bks           TEXT NOT NULL,
-  lai_xe        TEXT DEFAULT '',
-  ngay          TEXT DEFAULT '',
-  mo_ta         TEXT DEFAULT '',
-  dau_hieu      TEXT DEFAULT '',
-  muc_uu_tien   TEXT DEFAULT 'Binh_thuong',
-  trang_thai    TEXT DEFAULT 'cho_duyet',
-  nguoi_duyet   TEXT DEFAULT '',
-  ngay_duyet    TEXT DEFAULT '',
-  ly_do_tu_choi TEXT DEFAULT '',
-  nguoi_xuong   TEXT DEFAULT '',
-  ngay_xuong    TEXT DEFAULT '',
-  ly_do_xuong   TEXT DEFAULT '',
-  tho_id        TEXT DEFAULT '',
-  ngay_giao_tho TEXT DEFAULT '',
-  sc_id         TEXT DEFAULT '',
-  img_paths     TEXT DEFAULT '',
-  deleted_at    TEXT DEFAULT '',
-  CONSTRAINT chk_tk_muc_uu_tien CHECK (muc_uu_tien IN ('', 'Khan_cap', 'Xu_ly_som', 'Binh_thuong')),
-  CONSTRAINT chk_tk_trang_thai
-    CHECK (trang_thai IN ('', 'cho_duyet', 'da_duyet', 'tu_choi', 'xuong_nhan',
-                          'xuong_tu_choi', 'da_giao_tho', 'dang_thuc_hien',
-                          'da_hoan', 'da_huy'))
+-- ===================== B��NG GĐ3.6 — ĐỀ XUẤT SỬA CHỮA (DeXuat) =====================
+-- Thay thế module Thăm khám (TK). Xưởng tạo đề xuất, quản lý/giám đốc duyệt,
+-- sau đó chuyển thành phiếu sửa chữa (phieu_sua). Giữ nguyên hồ sơ 8 bước & phiếu kiểm tu.
+CREATE TABLE IF NOT EXISTS de_xuat_sua_chua (
+  id TEXT PRIMARY KEY,
+  bks TEXT NOT NULL,
+  ngay TEXT NOT NULL,
+  nguoi_tao TEXT NOT NULL,
+  mo_ta TEXT,
+  dau_hieu TEXT,  -- JSON TEXT (các triệu chứng do xưởng ghi nhận)
+  muc_uu_tien TEXT DEFAULT 'Binh_thuong',
+  trang_thai TEXT DEFAULT 'cho_duyet',
+  nguoi_duyet TEXT,
+  ngay_duyet TEXT,
+  ly_do_tu_choi TEXT,
+  sc_id TEXT,  -- liên kết tới phieu_sua sau khi duyệt & tạo SC
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1',
+  CONSTRAINT chk_de_xuat_muc_uu_tien CHECK (muc_uu_tien IN ('Khan_cap','Xu_ly_som','Binh_thuong')),
+  CONSTRAINT chk_de_xuat_trang_thai CHECK (trang_thai IN ('cho_duyet','da_duyet','tu_choi','da_chuyen_sc'))
 );
 
--- ============ GĐ3.7 — BỘ HỒ SƠ 8 BƯỚC (ĐÃ BỎ ẢNH/OCR) ============
+CREATE INDEX IF NOT EXISTS idx_de_xuat_bks ON de_xuat_sua_chua (bks);
+CREATE INDEX IF NOT EXISTS idx_de_xuat_trang_thai ON de_xuat_sua_chua (trang_thai);
+CREATE INDEX IF NOT EXISTS idx_de_xuat_sc_id ON de_xuat_sua_chua (sc_id);
 
+-- ===================== B��NG GĐ3.7 — B�� H�� S�� 8 B����C (ĐÃ B�� ��NH/OCR) =====================
 CREATE TABLE IF NOT EXISTS bao_gia_ncc (
-  id             BIGSERIAL PRIMARY KEY,
-  dm_id          TEXT DEFAULT '',
-  sc_id          TEXT DEFAULT '',
-  ncc_ten        TEXT DEFAULT '',
-  ncc_dia_chi    TEXT DEFAULT '',
-  ncc_sdt        TEXT DEFAULT '',
-  ngay           TEXT DEFAULT '',
-  loai_chung_tu  TEXT DEFAULT 'bao_gia',
-  ref_phieu_nhap TEXT DEFAULT '',
-  nguoi_lap      TEXT DEFAULT '',
-  deleted_at     TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  dm_id TEXT,
+  sc_id TEXT,
+  ncc_ten TEXT,
+  ncc_dia_chi TEXT,
+  ncc_sdt TEXT,
+  ngay TEXT,
+  loai_chung_tu TEXT DEFAULT 'bao_gia',
+  ref_phieu_nhap TEXT,
+  nguoi_lap TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS nhan_ky (
-  id           BIGSERIAL PRIMARY KEY,
-  phieu_loai   TEXT NOT NULL,
-  phieu_id     TEXT NOT NULL,
-  vi_tri       TEXT NOT NULL,
-  nguoi_ky     TEXT DEFAULT '',
-  chu_ky_data  TEXT DEFAULT '',
-  ngay_ky      TEXT DEFAULT '',
-  deleted_at   TEXT DEFAULT '',
-  CONSTRAINT uq_nhan_ky UNIQUE (phieu_loai, phieu_id, vi_tri)
+  id BIGSERIAL PRIMARY KEY,
+  phieu_loai TEXT NOT NULL,
+  phieu_id TEXT NOT NULL,
+  vi_tri TEXT NOT NULL,
+  nguoi_ky TEXT,
+  chu_ky_data TEXT,
+  ngay_ky TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1',
+  UNIQUE (phieu_loai, phieu_id, vi_tri)
 );
 
 CREATE TABLE IF NOT EXISTS sc_phien_ban (
-  id         BIGSERIAL PRIMARY KEY,
-  sc_id      TEXT NOT NULL,
-  nguoi_chot TEXT DEFAULT '',
-  ngay_chot  TEXT DEFAULT '',
-  snapshot   TEXT DEFAULT '',
-  deleted_at TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  sc_id TEXT NOT NULL,
+  nguoi_chot TEXT,
+  ngay_chot TEXT,
+  snapshot TEXT,  -- JSON TEXT
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS vattu_gia_lich_su (
-  id         BIGSERIAL PRIMARY KEY,
-  vattu_id   INTEGER DEFAULT 0,
-  ten        TEXT DEFAULT '',
-  ngay       TEXT DEFAULT '',
-  gia        REAL DEFAULT 0,
-  phieu_id   TEXT DEFAULT '',
-  nguon      TEXT DEFAULT '',
-  ncc        TEXT DEFAULT '',
-  deleted_at TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  vattu_id INT,
+  ten TEXT,
+  ngay TEXT,
+  gia REAL,
+  phieu_id TEXT,
+  nguon TEXT,
+  ncc TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS bien_ban_nghiem (
-  id             BIGSERIAL PRIMARY KEY,
-  sc_id          TEXT NOT NULL,
-  bks            TEXT DEFAULT '',
-  ngay           TEXT DEFAULT '',
-  ben_giao       TEXT DEFAULT '',
-  ben_nhan       TEXT DEFAULT '',
-  lai_xe         TEXT DEFAULT '',
-  bao_hanh_ngay  TEXT DEFAULT '',
-  ket_luan       TEXT DEFAULT '',
-  nguoi_lap      TEXT DEFAULT '',
-  tong_vat_tu    REAL DEFAULT 0,
-  tong_nhan_cong REAL DEFAULT 0,
-  chi_tiet_json  TEXT DEFAULT '',
-  deleted_at     TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  sc_id TEXT NOT NULL,
+  bks TEXT,
+  ngay TEXT,
+  ben_giao TEXT,
+  ben_nhan TEXT,
+  lai_xe TEXT,
+  bao_hanh_ngay TEXT,
+  ket_luan TEXT,
+  nguoi_lap TEXT,
+  tong_vat_tu REAL,
+  tong_nhan_cong REAL,
+  chi_tiet_json TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS phieu_kiem_tu (
-  id         TEXT PRIMARY KEY,
-  sc_id      TEXT DEFAULT '',
-  bks        TEXT DEFAULT '',
-  nguoi_lap  TEXT DEFAULT '',
-  ngay       TEXT DEFAULT '',
-  chi_tiet   TEXT DEFAULT '',
-  ket_luan   TEXT DEFAULT '',
-  deleted_at TEXT DEFAULT ''
+  id TEXT PRIMARY KEY,
+  sc_id TEXT,
+  bks TEXT,
+  nguoi_lap TEXT,
+  ngay TEXT,
+  chi_tiet TEXT,  -- JSON
+  ket_luan TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS ke_hoach_sc (
-  sc_id          TEXT PRIMARY KEY,
-  nguoi_bo_sung  TEXT DEFAULT '',
-  ngay           TEXT DEFAULT '',
-  hang_muc       TEXT DEFAULT '',
-  tong_du_kien   REAL DEFAULT 0,
-  deleted_at     TEXT DEFAULT ''
+  sc_id TEXT PRIMARY KEY,
+  nguoi_bo_sung TEXT,
+  ngay TEXT,
+  hang_muc TEXT,  -- JSON
+  tong_du_kien REAL,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
 CREATE TABLE IF NOT EXISTS phieu_nhap_dm (
@@ -489,64 +492,56 @@ CREATE TABLE IF NOT EXISTS phieu_nhap_dm (
 );
 
 CREATE TABLE IF NOT EXISTS phieu_nhap_thanhly (
-  id             BIGSERIAL PRIMARY KEY,
-  ph_id          TEXT DEFAULT '',
-  vattu_id       INTEGER DEFAULT 0,
-  ten            TEXT DEFAULT '',
-  donvi          TEXT DEFAULT '',
-  so_luong       REAL DEFAULT 0,
-  ly_do          TEXT DEFAULT '',
-  gia_thanh_ly   REAL DEFAULT 0,
-  ngay_thanh_ly  TEXT DEFAULT '',
-  deleted_at     TEXT DEFAULT ''
+  id BIGSERIAL PRIMARY KEY,
+  ph_id TEXT,
+  vattu_id INT,
+  ten TEXT,
+  donvi TEXT,
+  so_luong REAL,
+  ly_do TEXT,
+  gia_thanh_ly REAL,
+  ngay_thanh_ly TEXT,
+  deleted_at TEXT DEFAULT '',
+  tenant_id TEXT DEFAULT 'c1'
 );
 
--- ============ INDEX BẮT BUỘC (PLAN mục 6.6) ============
+-- ===================== INDEX B��T BU��C (Đ�� CHO WHERE/JOIN/ORDER) =====================
+-- GĐ3
+CREATE INDEX IF NOT EXISTS idx_phieu_sua_bks ON phieu_sua (bks);
+CREATE INDEX IF NOT EXISTS idx_phieu_sua_de_xuat_id ON phieu_sua (de_xuat_id);
+CREATE INDEX IF NOT EXISTS idx_sc_congviec_sc_id ON sc_congviec (sc_id);
+CREATE INDEX IF NOT EXISTS idx_sc_vattu_sc_id ON sc_vattu (sc_id);
+CREATE INDEX IF NOT EXISTS idx_dm_mua_ct_dm_id ON dm_mua_ct (dm_id);
+CREATE INDEX IF NOT EXISTS idx_phieu_nh_ct_ph_id ON phieu_nh_ct (ph_id);
+CREATE INDEX IF NOT EXISTS idx_phieu_xuat_ct_ph_id ON phieu_xuat_ct (ph_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_id ON chat_messages (thread_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bao_gia_ncc_sc_id ON bao_gia_ncc (sc_id);
+CREATE INDEX IF NOT EXISTS idx_bao_gia_ncc_dm_id ON bao_gia_ncc (dm_id);
+CREATE INDEX IF NOT EXISTS idx_nhan_ky_phieu ON nhan_ky (phieu_loai, phieu_id);
+CREATE INDEX IF NOT EXISTS idx_sc_phien_ban_sc_id ON sc_phien_ban (sc_id);
+CREATE INDEX IF NOT EXISTS idx_vattu_gia_lich_su_vattu_id ON vattu_gia_lich_su (vattu_id);
+CREATE INDEX IF NOT EXISTS idx_bien_ban_nghiem_sc_id ON bien_ban_nghiem (sc_id);
+CREATE INDEX IF NOT EXISTS idx_phieu_kiem_tu_sc_id ON phieu_kiem_tu (sc_id);
+CREATE INDEX IF NOT EXISTS idx_phieu_nhap_thanhly_ph_id ON phieu_nhap_thanhly (ph_id);
+CREATE INDEX IF NOT EXISTS idx_phieu_nhap_dm_ph_id ON phieu_nhap_dm (ph_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_log_audit_thoi_gian ON log_audit (thoi_gian);
 
-CREATE INDEX IF NOT EXISTS idx_kq_phieu    ON ket_qua(phieu_id);
-CREATE INDEX IF NOT EXISTS idx_kq_bks      ON ket_qua(bks);
-CREATE INDEX IF NOT EXISTS idx_kq_item     ON ket_qua(item_id);
-CREATE INDEX IF NOT EXISTS idx_kt_bks      ON kiem_tra(bks);
-CREATE INDEX IF NOT EXISTS idx_bd_bks      ON bao_duong(bks);
+-- Partition lạnh (GĐ7) — chat_messages, log_audit, ket_qua partition theo tháng
+-- CREATE SCHEMA IF NOT EXISTS part;
+-- CREATE TABLE part.chat_messages_y2026m01 PARTITION OF chat_messages FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+-- ... (các partition khác tạo bằng pg_partman hoặc cron job)
 
-CREATE INDEX IF NOT EXISTS idx_ps_bks      ON phieu_sua(bks);
-CREATE INDEX IF NOT EXISTS idx_psqc_sc     ON sc_congviec(sc_id);
-CREATE INDEX IF NOT EXISTS idx_psvt_sc     ON sc_vattu(sc_id);
-CREATE INDEX IF NOT EXISTS idx_dnm_ct      ON dm_mua_ct(dm_id);
-CREATE INDEX IF NOT EXISTS idx_pn_ct       ON phieu_nh_ct(ph_id);
-CREATE INDEX IF NOT EXISTS idx_pxx_ct      ON phieu_xuat_ct(ph_id);
+-- ===================== RLS (GĐ10 — MULTI-TENANT) =====================
+-- ALTER TABLE xe ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY xe_tenant ON xe USING (tenant_id = current_setting('app.tenant_id'));
+-- ... (tương tự cho các bảng nghiệp vụ khác)
+-- SET app.tenant_id = 'c1' mặc định.
 
-CREATE INDEX IF NOT EXISTS idx_chat_msgs_thread ON chat_messages(thread_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_tk_bks       ON yeu_cau_tham_kham(bks);
-CREATE INDEX IF NOT EXISTS idx_tk_lai_xe    ON yeu_cau_tham_kham(lai_xe);
-CREATE INDEX IF NOT EXISTS idx_tk_trang_thai ON yeu_cau_tham_kham(trang_thai);
-
-CREATE INDEX IF NOT EXISTS idx_bg_sc        ON bao_gia_ncc(sc_id);
-CREATE INDEX IF NOT EXISTS idx_bg_dm        ON bao_gia_ncc(dm_id);
-CREATE INDEX IF NOT EXISTS idx_nk_phieu     ON nhan_ky(phieu_loai, phieu_id);
-CREATE INDEX IF NOT EXISTS idx_spb_sc       ON sc_phien_ban(sc_id);
-CREATE INDEX IF NOT EXISTS idx_vgl_vt       ON vattu_gia_lich_su(vattu_id);
-CREATE INDEX IF NOT EXISTS idx_bbn_sc       ON bien_ban_nghiem(sc_id);
-CREATE INDEX IF NOT EXISTS idx_kt_sc        ON phieu_kiem_tu(sc_id);
-CREATE INDEX IF NOT EXISTS idx_pnd_ph       ON phieu_nhap_dm(ph_id);
-CREATE INDEX IF NOT EXISTS idx_pntl_ph      ON phieu_nhap_thanhly(ph_id);
-
--- Index hiệu năng (Phase 5 v3.6 — giữ)
-CREATE INDEX IF NOT EXISTS idx_bg_loai         ON bao_gia_ncc(loai_chung_tu);
-CREATE INDEX IF NOT EXISTS idx_ps_trang_thai   ON phieu_sua(trang_thai);
-CREATE INDEX IF NOT EXISTS idx_ps_trang_thai_ngay ON phieu_sua(trang_thai, ngay);
-CREATE INDEX IF NOT EXISTS idx_sc_cv_tt        ON sc_congviec(tt);
-CREATE INDEX IF NOT EXISTS idx_vt_ton          ON vattu(ton_min, ton);
-CREATE INDEX IF NOT EXISTS idx_ls_ngay         ON lich_sua(ngay);
-
--- Index phục vụ truy vấn thường xuyên
-CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_log_audit_time   ON log_audit(thoi_gian);
-
--- =====================================================================
--- GHI CHÚ (KHÔNG TẠO Ở GĐ1):
---  * Partition lạnh chat_messages/log_audit/ket_qua theo tháng — GĐ7 (mục 6.7).
---  * tenant_id + RLS multi-tenant — GĐ10 (mục 6.8).
---  * Materialized view thống kê — GĐ6/7.
--- =====================================================================
+-- ===================== SEED M��C Đ��NH (S�� CH��Y B��I seed.ts) =====================
+-- INSERT INTO config (key, value) VALUES
+--   ('duyet_sc_nguong', '5000000'),
+--   ('duyet_mua_nguong', '5000000'),
+--   ('khau_hao_nam', '10'),
+--   ('counter_XE', '0'), ('counter_KT', '0'), ('counter_SC', '0'), ('counter_DX', '0'),
+--   ('counter_DNM', '0'), ('counter_PXN', '0'), ('counter_PXX', '0'), ('counter_BD', '0');

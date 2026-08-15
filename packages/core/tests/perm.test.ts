@@ -19,8 +19,8 @@ describe('perm.seedPerms + can', () => {
     expect(await can(ctx.db, 'admin', 'sc', 'xem')).toBe(true);
     expect(await can(ctx.db, 'tho', 'sc', 'tao')).toBe(true);
     expect(await can(ctx.db, 'tho', 'sc', 'duy')).toBe(false);
-    expect(await can(ctx.db, 'laixe', 'tk', 'tao')).toBe(true);
-    expect(await can(ctx.db, 'laixe', 'kho', 'xem')).toBe(false);
+    expect(await can(ctx.db, 'xuong', 'de_xuat', 'tao')).toBe(true);
+    expect(await can(ctx.db, 'ketoan', 'sc', 'duy')).toBe(false);
   });
 
   it('can() fallback MATRIX khi DB chưa có dòng', async () => {
@@ -56,7 +56,6 @@ describe('perm ngưỡng duyệt', () => {
     expect(canQuyetToan('quanly')).toBe(true);
     expect(canQuyetToan('giamdoc')).toBe(true);
     expect(canQuyetToan('tho')).toBe(false);
-    expect(canQuyetToan('laixe')).toBe(false);
   });
 });
 
@@ -76,12 +75,12 @@ describe('perm.savePerms + permsOfRole', () => {
 
   it('allPerms có đủ 8 vai', async () => {
     const all = await allPerms(ctx.db);
-    expect(Object.keys(all).length).toBe(8);
+    expect(Object.keys(all).length).toBe(7);
     expect(all.admin).toEqual({ all: ['all'] });
   });
 
   it('MATRIX export đúng cấu trúc', () => {
     expect(MATRIX.tho!.sc).toContain('sua');
-    expect(MATRIX.laixe!.tk).toContain('tao');
+    expect(MATRIX.xuong!.de_xuat).toContain('tao');
   });
 });

@@ -42,18 +42,18 @@ describe('welcome', () => {
     expect(views2).toContain('kho_ton');
     expect(views2).toContain('dm_new');
 
-    ctx.setActor({ id: 'laixe-1', name: 'Lái xe', role: 'laixe' });
+    ctx.setActor({ id: 'xuong-1', name: 'Quản lý xưởng', role: 'xuong' });
     const w3 = (await welcome.welcome(ctx)) as any;
     const views3 = w3.shortcuts.map((s: any) => s.view);
-    expect(views3).toContain('tk_new');
-    expect(views3).toContain('xe_my');
+    expect(views3).toContain('dx_new');
+    expect(views3).toContain('sc_list');
   });
 
   it('stats chứa các chỉ số cơ bản', async () => {
     const w = (await welcome.welcome(ctx)) as any;
     expect(typeof w.stats.xe).toBe('number');
     expect(typeof w.stats.scChoDuyet).toBe('number');
-    expect(typeof w.stats.tkMine).toBe('number');
+    expect(typeof w.stats.dxChoDuyet).toBe('number');
     expect(typeof w.stats.chatUnread).toBe('number');
   });
 

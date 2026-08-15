@@ -16,6 +16,7 @@ import type { KhoApi } from './kho.js';
 import { vnd as scVnd } from './sc.js';
 import * as sc from './sc.js';
 import * as kho from './kho.js';
+import * as deXuat from './de_xuat.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const IMG_DIR = process.env.CHAT_IMG_DIR || join(__dirname, '..', '..', '..', 'data', 'chat_imgs');
@@ -312,8 +313,14 @@ export async function botReply(
     } catch {
       answer = 'Lỗi khi đọc phiếu sửa chữa.';
     }
-  } else if (/^\/bd/i.test(cmd)) {
-    answer = 'Vào Nhật ký sức khỏe để xem xe sắp đến hạn bảo dưỡng (lịch từ phiếu kiểm tra).';
+  } else if (/^\/dx/i.test(cmd)) {
+    try {
+      const dxApi: deXuat.DeXuatApi = { db: api.db, auth: api.auth, perm: api.perm as unknown as deXuat.PermLike };
+      const ds = await deXuat.deXuatList(dxApi, { trang_thai: 'cho_duyet' });
+      answer = ds.length ? 'Đề xuất chờ duyệt:\n' + ds.slice(0, 8).map((d) => `• ${d.id} ${d.bks} — ${String(d.mo_ta).slice(0, 40)}`).join('\n') : 'Không có đề xuất nào chờ duyệt.';
+    } catch {
+      answer = 'Lỗi khi đọc đề xuất sửa chữa.';
+    }
   }
   await insertMsg(api.db, String(t.id), 'cenbot', me, answer, 'text', '', '', 'bot', true);
 }

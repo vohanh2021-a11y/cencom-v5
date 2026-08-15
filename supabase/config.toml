@@ -1,41 +1,50 @@
-# =====================================================================
-# Supabase config — cencomOS-Garage v4.0
-# Dùng cho: supabase start (local) / supabase db push (remote)
-# Storage policies + RLS chi tiết: supabase/migrations/ (GĐ4 + GĐ10)
-# =====================================================================
+# supabase/config.toml — Cấu hình Supabase local cho cencomOS_gara_4.0_supa
+# Chạy: supabase start (cần Docker)
 
-project_id = "cencom-os-v4"
+[project]
+ref = "cencom-os-v4"
+name = "cencomOS-Garage v4"
+region = "ap-southeast-1"
 
 [api]
 enabled = true
 port = 54321
-schemas = ["public", "graphql_public"]
-extra_search_path = ["public", "extensions"]
+schemas = ["public"]
 max_rows = 1000
 
 [db]
+enabled = true
 port = 54322
+shadow_port = 54320
 major_version = 15
+host = "localhost"
 
 [studio]
 enabled = true
 port = 54323
 
-[inbucket]
-enabled = true
-port = 54324
+[auth]
+enabled = false  # Custom auth qua packages/core
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/**"]
 
 [storage]
 enabled = true
-file_size_limit = "20MB"
+port = 54324
+file_size_limit = "50MiB"
+buckets = [
+  { name = "temp_chat_imgs", public = false, file_size_limit = "5MiB", allowed_mime_types = ["image/jpeg", "image/png"] },
+  { name = "exports", public = false, file_size_limit = "50MiB" }
+]
 
-[storage.buckets.temp_chat_imgs]
-public = false
-file_size_limit = "5MB"
-allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
-
-[auth]
-enabled = false
-
-[realtime]
+[functions]
 enabled = true
+port = 54325
+verify_jwt = false
+
+[edge_runtime]
+policy = "per_worker"
+
+[logs]
+enabled = true
+port = 54326

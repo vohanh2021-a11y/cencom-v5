@@ -11,6 +11,12 @@ build/
 .env
 .env.*
 !.env.example
+!.env.local
+Onpremise/.env.onpremise
+!Onpremise/.env.onpremise
+# .env.onpremise.local chứa secrets — luôn bỏ qua (không được commit)
+.Onpremise/.env.onpremise.local
+.env.onpremise.local
 
 # Vercel / Supabase local
 .vercel/

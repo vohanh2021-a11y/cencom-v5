@@ -3,6 +3,16 @@
 > Nhật ký thay đổi của dự án v4. Bản tại thư mục v3.6 (`docs/CHANGELOG.md`) ghi nhận theo dõi Workspace.
 > Định dạng: `## YYYY-MM-DD — tiêu đề`.
 
+## 2026-08-15 — Ghi nhận checklist đối chiếu UI từ v3.6 (v3.6.3)
+
+- Tạo `docs/UI_DOI_CHIEU_TU_V3.md` — danh sách BẮT BUỘC đối chiếu khi port giao diện sang Next.js/Tailwind:
+  1. **Toast**: nhỏ, tự ẩn 1.5s, có nút đóng, ESC đóng, không dùng `pointer-events:none` thuần.
+  2. **ESC đóng mọi modal/overlay** (thứ tự: toast → modal nhỏ → modal form).
+  3. **Kanban 1 xe = 1 ô** (5 cột, modal timeline hồ sơ SC) — core `packages/core/src/xuong.ts` đã có (GĐ2), UI chưa làm.
+  4. **Role Preview demo theo vai** — `_demoDM`/`_demoVattu` phải lọc theo role (fix ở v3.6: `packages/core/src/preview.ts` chưa đối chiếu).
+  5. **Cổng lái xe không bắt buộc đổi mật khẩu** khi vào (v3.6 đã bỏ modal mustChange).
+- Nguồn fix mẫu ở v3.6: `server/preview.js` (role filter), `client/index.html` (toast + ESC), `client/tablet_insp.html` (toast), `tests/gd3_preview.js` (+5 test role-specific → 20/20).
+
 ## 2026-08-14 — Khởi tạo dự án v4.0 (GĐ0)
 
 - Tạo thư mục `E:\APP-LAPTOP-SYNC\cencomOS_gara_4.0_supa\` (ngoài v3.6, git repo riêng).
@@ -60,12 +70,72 @@
 
 ## 2026-08-14 — Ghi nhớ: Kanban v3.6.2 requirements (từ v3.6)
 
-- **Kanban Bảng điều khiển**: 1 xe = 1 card (group by `bks`), KHÔNG phải 1 SC = 1 card.
+- **Kanban Bảng điều khiển**: 1 xe = 1 card (group by `bks`), KH��NG phải 1 SC = 1 card.
 - **5 cột simplified**: Đề xuất / Đã duyệt / Đang sửa / Chờ nghiệm thu / Từ chối.
-  - BỎ cột: Đã tổng duyệt, Hoàn thành, Đã quyết toán (không cần trên dashboard).
-- **Ưu tiên xếp cột**: `dang_sua(5) > cho_nghiem(4) > da_duyet(3) > de_xuat(2) > tu_choi(1)`.
+  - B�� cột: Đã tổng duyệt, Hoàn thành, Đã quyết toán (không cần trên dashboard).
+- **��u tiên xếp cột**: `dang_sua(5) > cho_nghiem(4) > da_duyet(3) > de_xuat(2) > tu_choi(1)`.
 - **Card hiển thị**: BKS + hãng/model + tổng số SC + tổng tiền + progress bar + ETA + badge breakdown theo trạng thái.
 - **Click card → modal timeline**: hiển thị 5 bước (Lập → Duyệt → Bắt đầu → Hẹn trả → Nghiệm thu) cho từng SC của xe.
-- **Lái xe**: KHÔNG yêu cầu đổi mật khẩu mặc định khi đăng nhập (bỏ modal mustChange ở `laixe.html`). Server vẫn giữ logic `must_change` ở backend.
+- **Lái xe**: KH��NG yêu cầu đổi mật khẩu mặc định khi đăng nhập (bỏ modal mustChange ở `laixe.html`). Server vẫn giữ logic `must_change` ở backend.
 - **KPI giữ nguyên8 ô**: xe, SC chờ duyệt, SC đang sửa, chờ nghiệm thu, TK chờ duyệt, TK đang xử lý, hoàn hôm nay, quyết toán hôm nay.
 - **Schema PG v4**: cần bảng `phieu_sua` có cột `ngay_bat_dau`, `ngay_du_kien`, `ngay_nghiem`, `la_sua_ngoai`, `tk_id` (đã có trong schema GĐ1). Dashboard query PostgreSQL group by `bks` thay vì theo `trang_thai` đơn lẻ.
+
+## 2026-08-14 — Loại bỏ Module "Thăm Khám Sửa Chữa" (TK), Thêm Module "Đề Xuất Sửa Chữa" (DeXuat)
+
+**Lý do**: Giảm độ phức tạp hệ thống, tập trung vào cốt lõi quy trình sửa chữa. Thăm khám sẽ chuyển thành "Đề xuất sửa chữa" do xưởng/lái xe tạo, quản lý duyệt, sau đó chuyển thành phiếu sửa chữa.
+
+### Database Schema Changes
+- **XÓA 6 bảng**: `bieu_ma`, `kiem_tra`, `ket_qua`, `yeu_cau_tham_kham`, `phieu_kiem_tu` (gi�� cho hồ sơ 8 bước), `bao_duong`
+- **Bảng M��I**: `de_xuat_sua_chua` (Đề xuất sửa chữa) — State: `cho_duyet` → `da_duyet`/`tu_choi` → `da_chuyen_sc`
+- **Sửa bảng `xe`**: Xóa cột `danh_gia_pct`
+- **Sửa bảng `phieu_sua`**: Xóa `tk_id`, thêm `de_xuat_id` (FK → `de_xuat_sua_chua.id`)
+- **Sửa bảng `sc_vattu`**: Xóa `bao_gia_id` (có data production → migration set NULL trước khi drop)
+- **Thêm indexes**: `idx_de_xuat_bks`, `idx_de_xuat_trang_thai`, `idx_de_xuat_sc_id`
+- **Xóa indexes TK**: `idx_yeu_cau_tham_kham_*`, `idx_ket_qua_*`, `idx_kiem_tra_bks`, `idx_bao_duong_bks`
+
+### Core Modules
+- **XÓA**: `packages/core/src/tk.ts` (17KB), `packages/core/tests/tk.test.ts`
+- **M��I**: `packages/core/src/de_xuat.ts` (~20KB), `packages/core/tests/de_xuat.test.ts`
+- **Sửa `sc.ts`**: Xóa `tk_id`, thêm `de_xuat_id`, thêm RPC `scCreateFromDeXuat`
+- **Sửa `xuong.ts`**: Thay TK sections bằng DeXuat sections (`de_xuat_cho_duyet`, `de_xuat_da_duyet`), Kanban thêm cột "Đề xuất sửa chữa"
+- **Sửa `welcome.ts`**: Xóa TK stats (`tkChoDuyet`, `tkChoXuong`, `tkMine`), TK tasks, TK shortcuts
+- **Sửa `chat.ts`**: Xóa TK image handling (`img_paths` từ `yeu_cau_tham_kham`)
+- **Sửa `handlers.ts`**: Xóa RPC TK (`tkCreate`, `tkApprove`, `tkWorkshop`, `tkAssign`, `tkStart`, `tkCreateSC`, `tkFinish`, `thoList`), thêm RPC DeXuat (`deXuatCreate`, `deXuatList`, `deXuatGet`, `deXuatApprove`, `deXuatToSC`, `scCreateFromDeXuat`)
+- **Sửa `chat.ts`**: Xóa TK image handling
+
+### Permissions & Role
+- **XÓA role `laixe` hoàn toàn** (chỉ có TK permissions)
+- **XÓA** tất cả TK permissions khỏi MATRIX
+- **TH��M** `de_xuat` permissions:
+  - `xuong`: `de_xuat: ['xem', 'tao', 'sua']`
+  - `quanly`, `giamdoc`: `de_xuat: ['xem', 'duy']`
+- **XÓA** role `laixe` khỏi `ROLES` array và seed users
+
+### RPC Contract
+- **XÓA**: `tkCreate`, `tkSendImg`, `tkList`, `tkGet`, `tkApprove`, `tkWorkshop`, `tkAssign`, `tkStart`, `tkCreateSC`, `tkFinish`, `tkSendImg`, `thoList`
+- **TH��M**: `deXuatCreate`, `deXuatList`, `deXuatGet`, `deXuatApprove`, `deXuatToSC`, `scCreateFromDeXuat`
+
+### Tests
+- **XÓA**: `packages/core/tests/tk.test.ts`
+- **M��I**: `packages/core/tests/de_xuat.test.ts`
+- **Cập nhật**: `xuong.test.ts`, `welcome.test.ts`, `sc.test.ts`, `chat.test.ts`
+
+### Seed Data
+- **XÓA**: `packages/db/seed/seed_biemau.json` (97 mục biểu mẫu)
+- **Sửa**: `packages/db/seed/seed_xe.json` — xóa trường `danh_gia_pct` khỏi 42 xe
+- **Sửa**: `packages/db/src/seed.ts` — xóa `seedBieuMa()`
+
+### Documentation
+- Cập nhật `PLAN_14.08_supa.md`: Xóa section 6.4, 7.3, 8.5 TK RPCs; cập nhật section 10 UI (bỏ laixe/TK), section 12.2 "đường chết"
+
+### Migration Production Data
+- `phieu_sua.tk_id`: Có data production → migration set NULL → log_audit → drop column
+- `sc_vattu.bao_gia_id`: Có data production → set NULL trước khi drop column
+- `xe.danh_gia_pct`: Drop column
+
+### Rủi Ro & Mitigation
+- FK `phieu_sua.tk_id` drop → Migration: set NULL → log_audit → drop
+- `sc_vattu.bao_gia_id` production data → Set NULL trước khi drop column
+- Role `laixe` hardcoded ở nhiều chỗ → Grep toàn bộ codebase trước khi xóa
+- Test coverage giảm → Viết test `de_xuat.test.ts` đầy đủ
+- Frontend GĐ3 chưa code → Cập nhật PLAN trước GĐ3

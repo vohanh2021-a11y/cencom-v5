@@ -1,115 +1,151 @@
 /**
- * migrator.ts — Chuyển dữ liệu từ SQLite cũ (v3.6) sang PostgreSQL (v4).
- *
- * Nguyên tắc (PLAN mục 13 GĐ1):
- *  - Đọc `v3.6/data/cencom.db` bằng node:sqlite (offline, script — không phải server runtime).
- *  - Map 1-1: giữ id, ngày TEXT `YYYY-MM-DD`, JSON TEXT.
- *  - Chỉ copy các cột TỒN TẠI trong schema PG (thông qua information_schema) —
- *    tự động BỎ cột ảnh/OCR (`anh_bao_gia`, `ocr_result`, `ocr_xac_nhan`, `ocr_engine`)
- *    mà không cần hardcode danh sách.
- *  - `sessions.created_at/expires_at`: SQLite INTEGER (epoch ms) → PG TIMESTAMPTZ.
- *  - Sau khi copy: setval sequence cho bảng BIGSERIAL để id mới không đụng id cũ.
- *  - KHÔNG reset dữ liệu PG — chỉ INSERT ... ON CONFLICT DO NOTHING (idempotent).
+ * migrator.ts — Chuyển dữ liệu từ SQLite v3.6 (cencom.db) → PostgreSQL v4.
+ * - Giữ nguyên id, ngày (TEXT), JSON (TEXT).
+ * - Bỏ cột ảnh/OCR khỏi bao_gia_ncc.
+ * - Map tên bảng/cột lowercase cho PG.
+ * Library: import { migrate } from '@cencom/db' — cần pgPool đã init.
+ * CLI: npx tsx packages/db/src/migrator.ts (cần DATABASE_URL + SQLITE_PATH trong .env).
  */
-import { DatabaseSync } from './sqlite.js';
-import type { SqlClient } from './types.js';
+import pg from 'pg';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
+import * as path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const EPOCH_MS_COLS: Record<string, string[]> = {
-  sessions: ['created_at', 'expires_at'],
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const SQLITE_PATH_DEFAULT = path.join(__dirname, '..', '..', '..', 'CencomOS-Garage-v3.6', 'data', 'cencom.db');
+
+/** Lazy-init pool — chỉ tạo khi chạy CLI, không crash khi import trong test. */
+let pgPool: pg.Pool | null = null;
+let sqlitePath: string = SQLITE_PATH_DEFAULT;
+
+/** Danh sách bảng cần migrate (theo thứ tự phụ thuộc khóa ngoại) */
+const TABLES = [
+  'config', 'phong_ban', 'xe', 'users',
+  'nhat_ky', 'sessions',
+  'congviec', 'vattu', 'phieu_sua', 'sc_congviec', 'sc_vattu',
+  'de_nghi_mua', 'dm_mua_ct', 'phieu_nhap', 'phieu_nh_ct', 'phieu_xuat',
+  'phieu_xuat_ct', 'lich_sua', 'phan_quyen', 'log_audit',
+  'chat_threads', 'chat_messages',
+  'bao_gia_ncc', 'nhan_ky', 'sc_phien_ban', 'vattu_gia_lich_su',
+  'bien_ban_nghiem', 'phieu_kiem_tu', 'ke_hoach_sc',
+  'phieu_nhap_dm', 'phieu_nhap_thanhly',
+];
+
+/** Cột cần bỏ khi migrate (ảnh/OCR đã chốt BỎ ở v4) */
+const DROP_COLUMNS: Record<string, string[]> = {
+  bao_gia_ncc: ['anh_bao_gia', 'ocr_result', 'ocr_xac_nhan', 'ocr_engine'],
 };
 
-const toIso = (v: unknown): unknown => {
-  if (v === null || v === undefined || v === '') return v;
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? new Date(n).toISOString() : v;
-};
-
-interface TableCopyResult {
-  table: string;
-  rows: number;
-  cols: string[];
+async function getSqliteColumns(db: any, table: string): Promise<string[]> {
+  const info = await db.all(`PRAGMA table_info(${table})`);
+  return info.map((c: any) => c.name);
 }
 
-async function pgColumns(client: SqlClient): Promise<Map<string, string[]>> {
-  const r = await client.query<{ table_name: string; column_name: string }>(
-    `SELECT table_name, column_name FROM information_schema.columns
-     WHERE table_schema = 'public' ORDER BY ordinal_position`
-  );
-  const map = new Map<string, string[]>();
-  for (const row of r.rows) {
-    const t = row.table_name;
-    if (!map.has(t)) map.set(t, []);
-    map.get(t)!.push(row.column_name);
+export async function migrate(): Promise<void> {
+  if (!pgPool) {
+    throw new Error('pgPool chưa được khởi tạo. Gọi từ CLI hoặc truyền pool trước khi gọi migrate().');
   }
-  return map;
-}
 
-/**
- * Copy toàn bộ dữ liệu từ SQLite sang PG.
- * @param sqlitePath đường dẫn file .db cũ (v3.6/data/cencom.db)
- * @param client client PG đã kết nối (transaction hoặc pool)
- * @param tableWhitelist danh sách bảng cần copy (mặc định: tất cả bảng có trong cả 2 DB)
- */
-export async function migrateSqliteToPg(
-  sqlitePath: string,
-  client: SqlClient,
-  tableWhitelist?: string[]
-): Promise<{ results: TableCopyResult[]; totalRows: number }> {
-  const src = new DatabaseSync(sqlitePath, { readOnly: true });
-  const pgCols = await pgColumns(client);
+  console.log(`🔄 Migrate từ ${sqlitePath} → PG...`);
 
-  // Bảng trong SQLite (loại bỏ bảng hệ thống)
-  const sqliteTables = (src.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-  ).all() as Array<{ name: string }>).map((r) => r.name);
+  const sqlite = await open({ filename: sqlitePath, driver: sqlite3.Database });
+  const pgClient = await pgPool.connect();
 
-  const results: TableCopyResult[] = [];
-  let totalRows = 0;
+  try {
+    await pgClient.query('BEGIN');
 
-  for (const table of sqliteTables) {
-    if (tableWhitelist && !tableWhitelist.includes(table)) continue;
-    const pgColList = pgCols.get(table);
-    if (!pgColList) continue; // bảng không tồn tại trong PG schema — bỏ qua
+    for (const table of TABLES) {
+      const exists = await sqlite.get(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table
+      );
+      if (!exists) {
+        console.log(`  ⏭ ${table}: không có trong SQLite, bỏ qua`);
+        continue;
+      }
 
-    // Cột chung (SQLite ∩ PG) — tự động loại cột ảnh/OCR vì chúng không có trong PG
-    const srcCols = (src.prepare(`PRAGMA table_info(${JSON.stringify(table)})`).all() as Array<{ name: string }>)
-      .map((c) => c.name);
-    const cols = srcCols.filter((c) => pgColList.includes(c));
-    if (cols.length === 0) continue;
+      const cols = await getSqliteColumns(sqlite, table);
+      const dropCols = DROP_COLUMNS[table] || [];
+      const keepCols = cols.filter((c) => !dropCols.includes(c));
 
-    const rows = src.prepare(`SELECT ${cols.map((c) => JSON.stringify(c)).join(',')} FROM ${JSON.stringify(table)}`).all() as Record<string, unknown>[];
-    if (rows.length === 0) continue;
+      if (keepCols.length === 0) {
+        console.log(`  ⏭ ${table}: không còn cột sau khi bỏ, bỏ qua`);
+        continue;
+      }
 
-    const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
-    const insertSql = `INSERT INTO ${table}(${cols.join(',')}) VALUES(${placeholders}) ON CONFLICT DO NOTHING`;
-    const epCols = EPOCH_MS_COLS[table] || [];
+      const count = await sqlite.get(`SELECT COUNT(*) as c FROM ${table}`);
+      console.log(`  📦 ${table}: ${count.c} dòng, ${keepCols.length} cột`);
 
-    for (const row of rows) {
-      const params = cols.map((c) => (epCols.includes(c) ? toIso(row[c]) : row[c]));
-      await client.query(insertSql, params);
+      if (count.c === 0) continue;
+
+      const batchSize = 500;
+      for (let offset = 0; offset < count.c; offset += batchSize) {
+        const rows = await sqlite.all(
+          `SELECT ${keepCols.join(',')} FROM ${table} LIMIT ${batchSize} OFFSET ${offset}`
+        );
+
+        if (rows.length === 0) break;
+
+        const placeholders = keepCols.map((_, i) => `$${i + 1}`).join(',');
+        const colList = keepCols.join(',');
+        const sql = `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`;
+
+        for (const row of rows) {
+          const vals = keepCols.map((c) => row[c]);
+          if (table === 'sessions') {
+            const createdIdx = keepCols.indexOf('created_at');
+            const expiresIdx = keepCols.indexOf('expires_at');
+            if (createdIdx >= 0 && typeof vals[createdIdx] === 'number') {
+              vals[createdIdx] = new Date(vals[createdIdx]).toISOString();
+            }
+            if (expiresIdx >= 0 && typeof vals[expiresIdx] === 'number') {
+              vals[expiresIdx] = new Date(vals[expiresIdx]).toISOString();
+            }
+          }
+          try {
+            await pgClient.query(sql, vals);
+          } catch (e: any) {
+            console.error(`    ❌ Lỗi insert ${table}:`, e.message);
+            throw e;
+          }
+        }
+      }
+      console.log(`  ✅ ${table}: done`);
     }
-    totalRows += rows.length;
-    results.push({ table, rows: rows.length, cols });
-  }
 
-  // Đồng bộ sequence cho bảng BIGSERIAL để id mới không đụng id đã copy.
-  // Chỉ chạy khi bảng có cột `id` với default nextval (bảng con BIGSERIAL —
-  // tránh lỗi với bảng id TEXT hoặc bảng không có id như config/phan_quyen).
-  for (const table of results.map((r) => r.table)) {
-    const col = await client.query<{ col_default: string | null }>(
-      `SELECT column_default AS col_default FROM information_schema.columns
-       WHERE table_schema='public' AND table_name=$1 AND column_name='id'`, [table]
-    );
-    if (!col.rows[0]?.col_default || !col.rows[0].col_default.startsWith('nextval')) continue;
-    const seq = await client.query<{ seq: string | null }>(
-      `SELECT pg_get_serial_sequence($1, 'id') AS seq`, [table]
-    );
-    if (!seq.rows[0]?.seq) continue;
-    await client.query(
-      `SELECT setval($1, COALESCE(MAX(id), 1)) FROM ${table}`, [seq.rows[0].seq]
-    );
+    await pgClient.query('COMMIT');
+    console.log('🎉 Migrate hoàn tất!');
+  } catch (e) {
+    await pgClient.query('ROLLBACK');
+    throw e;
+  } finally {
+    pgClient.release();
+    await sqlite.close();
   }
+}
 
-  src.close();
-  return { results, totalRows };
+/** CLI entry: chỉ chạy khi file được execute trực tiếp. */
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const DATABASE_URL = process.env['DATABASE_URL'];
+  if (!DATABASE_URL) {
+    console.error('❌ Thiếu DATABASE_URL trong .env');
+    process.exit(1);
+  }
+  sqlitePath = process.env['SQLITE_PATH'] || SQLITE_PATH_DEFAULT;
+
+  pgPool = new pg.Pool({
+    connectionString: DATABASE_URL,
+    max: 10,
+    ssl: DATABASE_URL.includes('supabase') ? { rejectUnauthorized: false } : false,
+  });
+
+  migrate()
+    .then(() => pgPool!.end())
+    .catch((e) => {
+      console.error('❌ Migrate thất bại:', e);
+      pgPool!.end();
+      process.exit(1);
+    });
 }

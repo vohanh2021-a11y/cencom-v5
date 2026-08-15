@@ -1,0 +1,13 @@
+# Docker build context ignore (repo root)
+.git
+**/node_modules
+**/.next/cache
+**/dist
+**/coverage
+*.log
+npm-debug.log*
+.DS_Store
+**/.env
+**/.env.*
+!Onpremise/.env
+!Onpremise/.env.onpremise

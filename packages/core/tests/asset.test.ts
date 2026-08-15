@@ -64,7 +64,7 @@ async function makeSCDone(): Promise<{ scId: string; vtId: number; vtName: strin
   const dec = await kho.dmDecide(ctx, dmId, 'ok');
   expect(dec.ok).toBe(true);
   ctx.setActor({ id: 'admin', name: 'Admin', role: 'admin' });
-  await ctx.db.run("UPDATE bao_gia_ncc SET dm_id=$1 WHERE sc_id=$2 AND dm_id=''", dmId, scId);
+  await ctx.db.run("UPDATE bao_gia_ncc SET dm_id=$1 WHERE sc_id=$2 AND (dm_id='' OR dm_id IS NULL)", dmId, scId);
   const pn = await kho.phNhapCreate(ctx, { ref_dm: dmId, nha_cc: 'NCC Tùng Lâm' });
   expect(pn.ok).toBe(true);
   const px = await kho.phXuatCreate(ctx, { ref_sc: scId, items: [{ vattu_id: vtId, so_luong: 1 }] });

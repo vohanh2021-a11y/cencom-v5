@@ -92,7 +92,7 @@ export async function scCreate(
     phieu_kt?: string;
     mo_ta?: string;
     ghi_chu?: string;
-    tk_id?: string;
+    de_xuat_id?: string;
     ngay_du_kien?: string;
     tinh_trang_pt?: string;
     la_sua_ngoai?: boolean;
@@ -119,7 +119,6 @@ export async function scCreate(
       stt?: number;
       nguyen_nhan?: string;
       loai_xu_ly?: string;
-      bao_gia_id?: string;
     }>;
   }
 ): Promise<{ ok: boolean; id?: string; tong?: number; error?: string }> {
@@ -134,7 +133,7 @@ export async function scCreate(
     // Mã phiếu sửa chữa trong/ngoài khác nhau: SC- (nội) / SCN- (sửa chữa bên ngoài)
     const id = await tx.nextId(rec.la_sua_ngoai ? 'SCN' : 'SC');
     await tx.run(
-      'INSERT INTO phieu_sua(id, bks, phieu_kt, nguoi_lap, ngay, mo_ta, trang_thai, ghi_chu, tk_id, ngay_du_kien, tinh_trang_pt, la_sua_ngoai, don_vi_ngoai) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+      'INSERT INTO phieu_sua(id, bks, phieu_kt, nguoi_lap, ngay, mo_ta, trang_thai, ghi_chu, de_xuat_id, ngay_du_kien, tinh_trang_pt, la_sua_ngoai, don_vi_ngoai) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
       id,
       bks,
       rec.phieu_kt || '',
@@ -143,7 +142,7 @@ export async function scCreate(
       rec.mo_ta || '',
       'de_xuat',
       rec.ghi_chu || '',
-      rec.tk_id || '',
+      rec.de_xuat_id || '',
       rec.ngay_du_kien || '',
       rec.tinh_trang_pt || '',
       rec.la_sua_ngoai ? 1 : 0,
@@ -176,7 +175,7 @@ export async function scCreate(
         ? await tx.row<{ name: string; donvi: string; gia: number }>('SELECT * FROM vattu WHERE id=$1', v.vattu_id)
         : undefined;
       await tx.run(
-        'INSERT INTO sc_vattu(sc_id, vattu_id, ten, donvi, so_luong, gd_dk, thanh, tt, stt, nguyen_nhan, loai_xu_ly, bao_gia_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+        'INSERT INTO sc_vattu(sc_id, vattu_id, ten, donvi, so_luong, gd_dk, thanh, tt, stt, nguyen_nhan, loai_xu_ly) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
         id,
         v.vattu_id || 0,
         cat ? cat.name : (v.name || v.ten || ''),
@@ -187,8 +186,7 @@ export async function scCreate(
         'can_mua',
         Number(v.stt) || 0,
         String(v.nguyen_nhan || ''),
-        LOAI_XU_LY.indexOf(v.loai_xu_ly || '') >= 0 ? v.loai_xu_ly : '',
-        String(v.bao_gia_id || '')
+        LOAI_XU_LY.indexOf(v.loai_xu_ly || '') >= 0 ? v.loai_xu_ly : ''
       );
     }
     await syncPrices(tx, id);
@@ -664,7 +662,6 @@ export async function scVtUpd(
     stt?: number;
     nguyen_nhan?: string;
     loai_xu_ly?: string;
-    bao_gia_id?: string;
   }
 ): Promise<{ ok: boolean; error?: string }> {
   await checkLock(api, 'sc', 'sua');
@@ -683,7 +680,6 @@ export async function scVtUpd(
     if (LOAI_XU_LY.indexOf(patch.loai_xu_ly) < 0) return { ok: false, error: 'Loại xử lý sai (thay_the/khac_phuc).' };
     await api.db.run('UPDATE sc_vattu SET loai_xu_ly=$1 WHERE id=$2', patch.loai_xu_ly, itemId);
   }
-  if (patch.bao_gia_id !== undefined) await api.db.run('UPDATE sc_vattu SET bao_gia_id=$1 WHERE id=$2', String(patch.bao_gia_id), itemId);
   await api.db.run('UPDATE sc_vattu SET thanh=so_luong*(CASE WHEN gd_tt>0 THEN gd_tt ELSE gd_dk END) WHERE id=$1', itemId);
   await recalc(api.db, scId);
   return { ok: true };
@@ -766,13 +762,6 @@ export async function scNghiem(
           chiTietJson
         );
         await tx.audit('nghiem', 'bien_ban_nghiem', scId, meId(api), 'Lưu biên bản nghiệm thu & bàn giao');
-      }
-      // GĐ3.6: nếu phiếu từ yêu cầu thăm khám → tự động hoàn tất yêu cầu
-      if (sc.tk_id) {
-        await tx.run(
-          "UPDATE yeu_cau_tham_kham SET trang_thai='da_hoan' WHERE id=$1 AND trang_thai<>'da_hoan'",
-          sc.tk_id
-        );
       }
     }
     await tx.audit('nghiem-ul', 'phieu_sua', scId, meId(api), okNgh === false ? 'Nghiệm thu không đạt' : 'Nghiệm thu đạt');
