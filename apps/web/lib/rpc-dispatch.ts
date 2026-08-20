@@ -27,9 +27,21 @@ const ADMIN_ONLY: Record<string, string[]> = {
   permMatrix: ['admin'],
   permSave: ['admin'],
   thresholdsSet: ['admin'],
+  auditList: ['admin'],
   previewStart: ['admin'],
   previewStop: ['admin'],
   previewState: ['admin'],
+};
+
+/** fn → danh sách role được phép (giới hạn chặt hơn rpcMeta).
+ *  Dùng cho các chức năng nhạy cảm (xuất toàn bộ hồ sơ SC có chi phí). */
+const ROLE_RESTRICT: Record<string, string[]> = {
+  scHoSoXlsx: ['admin', 'giamdoc', 'ketoan'],
+  hoSoSave: ['ketoan', 'admin'],
+  hoSoGet: ['giamdoc', 'ketoan', 'xuong', 'kho', 'admin'],
+  hoSoList: ['giamdoc', 'ketoan', 'xuong', 'kho', 'admin'],
+  // v5.0 — feed "theo dõi toàn bộ" là độc quyền Giám đốc + admin ops.
+  activityFeed: ['admin', 'giamdoc'],
 };
 
 /** fn → [module, feature] — CBAC permission check */
@@ -40,8 +52,12 @@ const RPC_META: Record<string, [string, string]> = {
   scSetDeadline: ['sc', 'sua'],
   scWorkSet: ['sc', 'sua'], scWorkAdd: ['sc', 'sua'], scWorkDel: ['sc', 'sua'],
   scVtAdd: ['sc', 'sua'], scVtUpd: ['sc', 'sua'], scVtDel: ['sc', 'sua'],
-  scFinish: ['sc', 'sua'], scNghiem: ['sc', 'duy'],
+  scFinish: ['sc', 'sua'],   scNghiem: ['sc', 'duy'],
   scTongDuyet: ['sc', 'duy'],
+  // GĐ4: Mẫu 2/7/8 (in hồ sơ SC)
+  scMau2: ['sc', 'xem'], scMau7: ['sc', 'xem'], scMau8: ['sc', 'xem'],
+  // GĐ5: dashboard + tiến trình 8 bước
+  scDashboard: ['sc', 'xem'], scTienTrinh: ['sc', 'xem'],
   // Kho
   vatTuList: ['kho', 'xem'], vatTuSave: ['kho', 'tao'], vatTuDel: ['kho', 'xoa'],
   tonKho: ['kho', 'xem'],
@@ -49,6 +65,8 @@ const RPC_META: Record<string, [string, string]> = {
   phXuatList: ['kho', 'xem'], phXuatGet: ['kho', 'xem'], phXuatCreate: ['kho', 'xuat'],
   giaLichSuList: ['kho', 'xem'], thanhLyList: ['kho', 'xem'],
   autoGenCuHong: ['kho', 'tao'],
+  // v4.3 Kho — báo cáo & chuyển kho
+  tonKhoReport: ['kho', 'xem'], vatTuHistory: ['kho', 'xem'], phChuyenKhoCreate: ['kho', 'xuat'],
   // Mua (đề nghị mua)
   dmList: ['mua', 'xem'], dmDetail: ['mua', 'xem'],
   dmCreate: ['mua', 'tao'], dmFromSC: ['mua', 'tao'], dmFromBaoGia: ['mua', 'tao'],
@@ -58,6 +76,16 @@ const RPC_META: Record<string, [string, string]> = {
   quyetToan: ['asset', 'quyet'], lichSuaList: ['asset', 'xem'],
   assetXe: ['asset', 'xem'], assetReport: ['asset', 'xem'],
   ncNgoaiReport: ['asset', 'xem'],
+  // Ke toan (GĐ1 + GĐ3/GĐ4)
+  ledgerPost: ['ke_toan', 'tao'], ledgerList: ['ke_toan', 'xem'],
+  vatInvoiceSave: ['ke_toan', 'vat'], phieuChiCreate: ['ke_toan', 'chi'],
+  congNoList: ['ke_toan', 'xem'], congNoChuaCoHoaDon: ['ke_toan', 'xem'], ledgerReport: ['ke_toan', 'baocao'], kyClose: ['ke_toan', 'ky'], kyOpen: ['ke_toan', 'ky'], ledgerReportPdf: ['ke_toan', 'baocao'],
+  // v4.3 Ke toan — sổ quỹ / phiếu thu nội bộ
+  phieuThuCreate: ['ke_toan', 'tao'],
+  // v4.3 Báo cáo chi phí 3 bên & Đối soát (UAT TC-ST-04/TC-ST-05) —
+  // chỉ vai có ke_toan.xem (ketoan, giamdoc) được gọi; role khác bị chặn qua CBAC.
+  baoCaoChiPhi: ['ke_toan', 'xem'],
+  doiSoat: ['ke_toan', 'xem'],
   // Chat
   chatPeers: ['chat', 'xem'], chatThreadOpen: ['chat', 'tao'],
   chatList: ['chat', 'xem'], chatMessages: ['chat', 'xem'],
@@ -68,20 +96,35 @@ const RPC_META: Record<string, [string, string]> = {
   deXuatCreate: ['de_xuat', 'tao'], deXuatList: ['de_xuat', 'xem'],
   deXuatGet: ['de_xuat', 'xem'], deXuatApprove: ['de_xuat', 'duy'],
   deXuatToSC: ['de_xuat', 'sua'],
+  // Search (GĐ-3)
+  globalSearch: ['search', 'xem'],
+  // Xe / Khách hàng (GĐ-4)
+  xeList: ['xe', 'xem'], xeGet: ['xe', 'xem'], xeSave: ['xe', 'sua'], xeReminders: ['xe', 'xem'],
+  khachHangList: ['xe', 'xem'], khachHangGet: ['xe', 'xem'], khachHangSave: ['xe', 'sua'], khachHangDel: ['xe', 'xoa'],
+  // v4.3 Xe — đánh giá xe & lịch bảo dưỡng (Xưởng)
+  xeScoreSave: ['xe', 'sua'], xeScoreGet: ['xe', 'xem'],
+  baoDuongTao: ['xe', 'sua'], baoDuongList: ['xe', 'xem'],
   // Xuong
   xuongDashboard: ['xuong', 'xem'], dashboardAll: ['xuong', 'xem'],
   // BaoGia
   baoGiaList: ['mua', 'xem'], baoGiaGet: ['mua', 'xem'],
   baoGiaCreate: ['mua', 'tao'], baoGiaConfirm: ['mua', 'tao'], baoGiaDel: ['mua', 'xoa'],
-  baoGiaCompare: ['mua', 'xem'],
   // NhanKy
   nhanKyList: ['sc', 'xem'], nhanKySet: ['sc', 'sua'],
+  // v4.3 SC — phương án sửa chữa (Xưởng)
+  scProposalSave: ['sc', 'sua'], scProposalList: ['sc', 'xem'],
+  // v4.3 SC — ảnh hiện trường
+  scAnhSave: ['sc', 'sua'],
   // CheckHoSo
   checkHoSo: ['sc', 'xem'],
-  // Welcome
-  welcomeData: ['all', 'xem'],
+  // Ho so ke toan (GĐ5) — chi ketoan duoc luu; cac role xem deu duoc
+  hoSoSave: ['hoso', 'tao'], hoSoGet: ['hoso', 'xem'], hoSoList: ['hoso', 'xem'],
+  // Welcome — welcomeData nằm trong PUBLIC_FNS (mọi user đăng nhập đều gọi được
+  // để hiện badge/thông báo), không cần khai báo meta (tránh check perm module 'all').
   // Report
   userList: ['report', 'xem'],
+  auditList: ['report', 'xem'],
+  scHoSoXlsx: ['report', 'xem'],
 };
 
 /** Public functions — mọi role đã đăng nhập đều gọi được */
@@ -103,8 +146,6 @@ const PUBLIC_FNS = [
   'assetXe', 'assetReport', 'lichSuaList', 'ncNgoaiReport',
   // Chat
   'chatPeers', 'chatList', 'chatMessages', 'chatUnreadCount',
-  // Report
-  'fleetReport', 'accountingReport',
 ];
 
 /* ─── Preview mode guard ─── */
@@ -121,6 +162,9 @@ const PREVIEW_MUTATION_BLOCK = [
   'vatTuSave', 'vatTuDel',
   'userAdd', 'userSetPassword', 'userSetActive',
   'permSave', 'thresholdsSet',
+  // v4.3 mutations
+  'phChuyenKhoCreate', 'phieuThuCreate',
+  'scProposalSave', 'xeScoreSave', 'baoDuongTao', 'scAnhSave',
 ];
 
 /* ─── Types ─── */
@@ -128,6 +172,24 @@ export interface RpcResult {
   ok: boolean;
   result?: unknown;
   error?: string;
+}
+
+/* ─── Resolve handler từ @cencom/core ───
+ * @cencom/core export theo NAMESPACE (sc, kho, chat, de_xuat...),
+ * còn RPC contract dùng TÊN FLAT (scList, phNhapList, chatPeers...).
+ * Do đó lookup flat `core[fn]` luôn undefined cho các hàm namespace.
+ * Hàm này thử flat trước, rồi quét mọi namespace để tìm handler đúng. */
+function resolveHandler(fn: string): unknown {
+  const flat = (core as Record<string, unknown>)[fn];
+  if (typeof flat === 'function') return flat;
+  for (const key of Object.keys(core)) {
+    const ns = (core as Record<string, unknown>)[key];
+    if (ns && typeof ns === 'object') {
+      const h = (ns as Record<string, unknown>)[fn];
+      if (typeof h === 'function') return h;
+    }
+  }
+  return undefined;
 }
 
 /* ─── Core dispatch logic ─── */
@@ -144,10 +206,17 @@ export async function dispatchRpc(
       return { ok: false, error: 'Không có quyền truy cập chức năng này (admin only)' };
     }
 
+    // 1b. Check role-restrict (chức năng nhạy cảm)
+    const allow = ROLE_RESTRICT[fn];
+    if (allow && !allow.includes(user.role)) {
+      return { ok: false, error: 'Chức năng này giới hạn quyền truy cập (role restricted)' };
+    }
+
     // 2. Check rpcMeta (CBAC) — skip cho public functions
     const meta = RPC_META[fn];
-    if (!meta && !PUBLIC_FNS.includes(fn) && !adminRoles) {
+    if (!meta && !PUBLIC_FNS.includes(fn) && !adminRoles && !allow) {
       // Default-deny: fn không khai báo → CHẶN
+      // (cho phép cả fn chỉ nằm trong ROLE_RESTRICT — đã check ở bước 1b).
       return { ok: false, error: `Chức năng '${fn}' không được phép truy cập` };
     }
 
@@ -175,8 +244,8 @@ export async function dispatchRpc(
     // 5. Build API object cho core functions
     const api = buildApi(user, db);
 
-    // 6. Gọi handler
-    const handler = (core as Record<string, unknown>)[fn];
+    // 6. Gọi handler (lookup flat + namespace)
+    const handler = resolveHandler(fn);
     if (typeof handler !== 'function') {
       return { ok: false, error: `Handler '${fn}' không tồn tại` };
     }
@@ -208,7 +277,8 @@ function buildApi(user: AuthUser, db: Db): Record<string, unknown> {
       currentName: () => user.name,
       current: () => user,
     },
-    // Core modules pass their own API interfaces
-    // This is a unified API object for the RPC dispatcher
+    // BẮT BUỘC: core functions (checkLock, perm.can...) dùng api.perm.
+    // Thiếu trường này sẽ throw "Cannot read properties of undefined (reading 'can')".
+    perm: core.perm,
   };
 }

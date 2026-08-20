@@ -7,12 +7,10 @@ import { fmtMoney } from '@/lib/format';
 
 const ROLES: Array<[string, string]> = [
   ['giamdoc', 'Giám đốc'],
-  ['quanly', 'Quản lý'],
   ['ketoan', 'Kế toán'],
-  ['tho', 'Thợ kỹ thuật'],
-  ['khoa', 'Thủ kho'],
   ['xuong', 'Quản lý xưởng'],
-  ['laixe', 'Lái xe'],
+  ['kho', 'Kho & Vật tư'],
+  ['admin', 'Quản trị'],
 ];
 
 type Demo = {
@@ -25,7 +23,7 @@ type Demo = {
 
 export default function PreviewPage() {
   const { user } = useSession();
-  const [role, setRole] = React.useState<string>('quanly');
+  const [role, setRole] = React.useState<string>('ketoan');
   const [demo, setDemo] = React.useState<Demo | null>(null);
   const [loading, setLoading] = React.useState(false);
 

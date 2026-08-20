@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-const ROLES = ['admin', 'tho', 'khoa', 'ketoan', 'quanly', 'giamdoc', 'xuong'];
+const ROLES = ['admin', 'giamdoc', 'xuong', 'ketoan', 'kho'];
 const MODULES = ['sc', 'kho', 'mua', 'asset', 'xe', 'chat', 'de_xuat', 'xuong', 'report'];
 const FEATURES = ['xem', 'tao', 'sua', 'duy', 'quyet', 'xuat', 'xoa', 'kehoach'];
 

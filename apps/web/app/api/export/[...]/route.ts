@@ -1,4 +1,4 @@
-/**
+﻿/**
  * GET /api/export/[...] — Export Excel (stream).
  *
  * Các loại export hỗ trợ:
@@ -16,9 +16,9 @@ import * as core from '@cencom/core';
 
 export async function GET(
   request: Request,
-  { params }: { params: { path: string[] } },
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
-  const token = request.headers.get('x-session-token');
+  const token = request.headers.get('x-session-token') || request.headers.get('cookie')?.match(/cen_session=([^;]+)/)?.[1];
   if (!token) {
     return new Response('Unauthorized', { status: 401 });
   }
@@ -42,7 +42,7 @@ export async function GET(
   const user = userResult.rows[0];
 
   // Check permission
-  const segs = params.path;
+  const _p = await params as any; const segs: string[] = _p?.path ?? Object.values(_p)[0];
   const kind = segs[0];
 
   try {
@@ -85,6 +85,19 @@ export async function GET(
         const wb = await core.report.buildDeXuatWorkbook({ db } as any);
         buffer = Buffer.from(wb);
         filename = `dexuat_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        break;
+      }
+      case 'sc-hoso': {
+        const scId = segs[1] ?? '';
+        if (!scId) return new Response('Missing SC ID', { status: 400 });
+        const can = await core.perm.can(db, user.role, 'report', 'xem');
+        if (!can) return new Response('Forbidden', { status: 403 });
+        // Giới hạn role: chỉ lãnh đạo/xưởng/kế toán được tải toàn bộ hồ sơ (có chi phí)
+        const ALLOW = ['admin', 'giamdoc', 'ketoan'];
+        if (!ALLOW.includes(user.role)) return new Response('Forbidden', { status: 403 });
+        const wb = await core.report.scHoSoXlsx({ db } as any, scId);
+        buffer = Buffer.from(wb);
+        filename = `hoso_${scId}.xlsx`;
         break;
       }
       default:

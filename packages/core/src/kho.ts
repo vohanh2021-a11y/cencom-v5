@@ -7,6 +7,11 @@
  *  - `thanhLyList`: bỏ `p.bks` (schema v4 phieu_nhap không có cột bks).
  */
 import type { Db } from './db.js';
+import { postInner, type LedgerEntry } from './ledger.js';
+import { paginate, normPage, type Paginated } from './list.js';
+import { logActivity } from './activity.js';
+
+const r2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
 import type {
   VattuRow,
   DeNghiMuaRow,
@@ -74,8 +79,31 @@ async function vtByTen(db: Db, ten: string): Promise<VattuRow | null> {
 }
 
 /* ---------------- danh mục vật tư ---------------- */
-export async function vatTuList(api: KhoApi): Promise<VattuRow[]> {
+export async function vatTuList(
+  api: KhoApi,
+  q?: { page?: unknown; limit?: unknown; search?: string }
+): Promise<VattuRow[] | Paginated<VattuRow>> {
   await checkLock(api, 'kho', 'xem');
+  // Nếu có page/limit → phân trang thực (GĐ-2). Ngược lại trả toàn bộ (backward-compat cho dropdown).
+  if (q && (q.page !== undefined || q.limit !== undefined)) {
+    const { page, limit } = normPage(q);
+    let where = " WHERE deleted_at=''";
+    const params: unknown[] = [];
+    if (q.search) {
+      where += ' AND (upper(name) LIKE $1 OR upper(code) LIKE $1 OR upper(nhom) LIKE $1)';
+      params.push('%' + String(q.search).toUpperCase() + '%');
+    }
+    return paginate<VattuRow>(
+      api.db,
+      'SELECT * FROM vattu',
+      where,
+      params,
+      'ORDER BY nhom, name',
+      page,
+      limit,
+      'vattu'
+    );
+  }
   return api.db.rows<VattuRow>("SELECT * FROM vattu WHERE deleted_at='' ORDER BY nhom, name");
 }
 
@@ -202,13 +230,14 @@ export async function dmCreate(
 ): Promise<{ ok: boolean; id?: string; tong?: number; error?: string }> {
   await checkLock(api, 'mua', 'tao');
   rec = rec || {};
+  const isTest = api.auth.current()?.role === 'admin' ? 1 : 0;
   const items = (rec.items || []).filter((x) => x && (Number(x.vattu_id) || String(x.name || '').trim()));
   if (!items.length) return { ok: false, error: 'Không có vật tư nào để đề nghị.' };
   return api.db.transaction(async (tx) => {
     const id = await tx.nextId('DNM');
     await tx.run(
-      'INSERT INTO de_nghi_mua(id, nguoi_lap, ngay, trang_thai, ghi_chu) VALUES($1,$2,$3,$4,$5)',
-      id, meId(api), tx.today(), 'cho_duyet', String(rec.ghi_chu || '')
+      'INSERT INTO de_nghi_mua(id, nguoi_lap, ngay, trang_thai, ghi_chu, is_test) VALUES($1,$2,$3,$4,$5,$6)',
+      id, meId(api), tx.today(), 'cho_duyet', String(rec.ghi_chu || ''), isTest
     );
     for (const it of items) {
       const cat = it.vattu_id ? await vtById(tx, it.vattu_id) : null;
@@ -396,6 +425,15 @@ export async function autoXuatSC(api: KhoApi, scId: string, inTx = false): Promi
       tong += sl * gia;
     }
     await tx.audit('kho', 'phieu_xuat', String(phId), meId(api), 'Xuất tự động đủ vật tư cho SC ' + scId);
+    // GĐ2: ghi sổ kế toán — xuất VT cho SC → Nợ 154 (CP dở dang) / Có 152 (giá vốn)
+    if (tong > 0) {
+      const post = await postInner(tx, {
+        so_ct: phId, ngay: tx.today(), loai_ct: 'phieu_xuat',
+        nguoi: meId(api), ref_type: 'phieu_xuat', ref_id: scId,
+        entries: [{ tai_khoan: '154', du_no: tong }, { tai_khoan: '152', du_co: tong }],
+      }, meId(api));
+      if (!post.ok) throw new Error('Lỗi ghi sổ kế toán (xuất SC): ' + post.error);
+    }
     return phId;
   };
   if (inTx) return body(api.db);
@@ -403,21 +441,25 @@ export async function autoXuatSC(api: KhoApi, scId: string, inTx = false): Promi
 }
 
 export async function phNhapList(
-  api: KhoApi
-): Promise<Array<PhieuNhapRow & { so_dong: number; tong: number }>> {
+  api: KhoApi,
+  q: { page?: unknown; limit?: unknown } = {}
+): Promise<Array<PhieuNhapRow & { so_dong: number; tong: number }> & { total: number; page: number; limit: number; pages: number }> {
   await checkLock(api, 'kho', 'xem');
-  const ps = await api.db.rows<PhieuNhapRow>("SELECT * FROM phieu_nhap WHERE deleted_at='' ORDER BY ngay DESC, id DESC");
-  const out: Array<PhieuNhapRow & { so_dong: number; tong: number }> = [];
-  for (const p of ps) {
-    const c = await api.db.row<{ c: number }>(
-      "SELECT COUNT(*) c FROM phieu_nh_ct WHERE ph_id=$1 AND deleted_at=''", p.id
-    );
-    const s = await api.db.row<{ s: number }>(
-      "SELECT COALESCE(SUM(thanh),0) s FROM phieu_nh_ct WHERE ph_id=$1 AND deleted_at=''", p.id
-    );
-    out.push({ ...p, so_dong: Number(c?.c || 0), tong: Number(p.tong) || Number(s?.s || 0) });
-  }
-  return out;
+  const { page, limit } = normPage(q);
+  const rows = await paginate<PhieuNhapRow & { so_dong: number; tong: number }>(
+    api.db,
+    `SELECT p.*,
+        COALESCE((SELECT COUNT(*) FROM phieu_nh_ct c WHERE c.ph_id=p.id AND c.deleted_at=''),0) AS so_dong,
+        COALESCE((SELECT SUM(thanh) FROM phieu_nh_ct c WHERE c.ph_id=p.id AND c.deleted_at=''),0) AS tong
+      FROM phieu_nhap p`,
+    " WHERE p.deleted_at=''", [], 'ORDER BY p.ngay DESC, p.id DESC', page, limit, 'phieu_nhap p'
+  );
+  const out = rows.map((r) => ({ ...r, so_dong: Number(r.so_dong) || 0, tong: Number(r.tong) || 0 }));
+  (out as any).total = rows.total;
+  (out as any).page = rows.page;
+  (out as any).limit = rows.limit;
+  (out as any).pages = rows.pages;
+  return out as any;
 }
 
 export async function phNhapGet(
@@ -452,6 +494,10 @@ interface PhNhapRec {
   loai_nhap?: string;
   items?: PhNhapItemInput[];
   nha_cc?: string;
+  ncc_id?: string;
+  tra_ngay?: boolean;
+  han_tt?: string;
+  vat?: { so_hd: string; tien_thue: number; ty_le?: number; ngay?: string };
   nguoi_giao?: string;
   ncc_dia_chi?: string;
   ncc_sdt?: string;
@@ -465,8 +511,9 @@ export async function phNhapCreate(
 ): Promise<{ ok: boolean; id?: string; tong?: number; loai_nhap?: string; error?: string }> {
   await checkLock(api, 'kho', 'tao');
   rec = rec || {};
+  const isTest = api.auth.current()?.role === 'admin' ? 1 : 0;
   const loai = rec.loai_nhap === 'cu_hong' ? 'cu_hong' : 'moi';
-  return api.db.transaction(async (tx) => {
+  const res = await api.db.transaction(async (tx) => {
     const id = await tx.nextId('PXN');
     let items: Array<{ vattu_id?: number; ten?: string; donvi?: string; so_luong?: number; dgia?: number; sc_id?: string; ref_baogia?: string }> = [];
     let refBaoGia = '';
@@ -487,9 +534,9 @@ export async function phNhapCreate(
     }
     if (!items.length) return { ok: false, error: 'Không có dòng hàng.' };
     await tx.run(
-      'INSERT INTO phieu_nhap(id, ngay, nguoi_lap, nha_cc, nguoi_duyet, ref_dm, tong, ghi_chu, loai_nhap, nguoi_giao, ncc_dia_chi, ncc_sdt) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+      'INSERT INTO phieu_nhap(id, ngay, nguoi_lap, nha_cc, nguoi_duyet, ref_dm, tong, ghi_chu, loai_nhap, nguoi_giao, ncc_dia_chi, ncc_sdt, is_test) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
       id, tx.today(), meId(api), rec.nha_cc || '', '', rec.ref_dm || '', 0,
-      rec.ghi_chu || '', loai, rec.nguoi_giao || '', rec.ncc_dia_chi || '', rec.ncc_sdt || ''
+      rec.ghi_chu || '', loai, rec.nguoi_giao || '', rec.ncc_dia_chi || '', rec.ncc_sdt || '', isTest
     );
     const scIds: Record<string, number> = {};
     let tong = 0;
@@ -511,8 +558,19 @@ export async function phNhapCreate(
         // GĐ3.7: nhập vật tư cũ/hỏng → đưa vào kho hư hỏng riêng (ton_cu_hong), KHÔNG thay đổi tồn dùng.
         await tx.run('UPDATE vattu SET ton_cu_hong = ton_cu_hong + $1 WHERE id=$2', sl, cat.id);
       } else {
-        await tx.run('UPDATE vattu SET ton = ton + $1, gia = $2 WHERE id=$3', sl, gia, cat.id);
+        // GĐ2 (COGS): cập nhật vattu.gia theo trọng số bình quân (mặc định cogs_method=binh_quan).
+        // Postgres tính biểu thức SET từ giá trị CŨ của hàng → ton/gia bên phải là giá trị trước update.
+        await tx.run(
+          "UPDATE vattu SET ton = ton + $1, gia = CASE WHEN (ton + $1) > 0 THEN ((ton * gia) + ($1 * $2)) / (ton + $1) ELSE $2 END WHERE id = $3",
+          sl, gia, cat.id
+        );
         await ghiGiaLichSu(tx, cat.id, cat.name, gia, id, 'nhap_kho', rec.nha_cc || '');
+        // GĐ3: ghi lot nhập (phục vụ sổ 152 FIFO / đối chiếu)
+        const tlId = await tx.nextId('TL');
+        await tx.run(
+          "INSERT INTO ton_lot(id, vattu_id, phieu_nhap_id, so_luong, gia, con_lai, ngay) VALUES($1,$2,$3,$4,$5,$6,$7)",
+          tlId, cat.id, id, sl, gia, sl, tx.today()
+        );
         if (scId) {
           scIds[scId] = 1;
           await tx.run(
@@ -539,24 +597,67 @@ export async function phNhapCreate(
     await tx.run('UPDATE phieu_nhap SET tong=$1 WHERE id=$2', sum, id);
     if (rec.ref_dm) await tx.run("UPDATE de_nghi_mua SET trang_thai='da_nhap' WHERE id=$1", rec.ref_dm);
     await tx.audit('kho', 'phieu_nhap', String(id), meId(api), 'Nhập kho ' + (loai === 'cu_hong' ? 'vật tư cũ/hỏng/thanh lý' : 'vật tư mới') + ' ' + id);
+    // GĐ2/GĐ3: ghi sổ kế toán — nhập vật tư mới → Nợ 152 (+133 VAT) / Có 331 (hoặc 112 nếu trả ngay)
+    // + sinh công nợ phải trả NCC (cong_no) khi chưa trả ngay.
+    if (loai === 'moi' && sum > 0) {
+      const tienThue = Math.max(0, Number(rec.vat?.tien_thue) || 0);
+      const tongCong = r2(sum + tienThue);
+      const entries: LedgerEntry[] = [{ tai_khoan: '152', du_no: sum }];
+      if (tienThue > 0) entries.push({ tai_khoan: '133', du_no: tienThue });
+      entries.push(rec.tra_ngay ? { tai_khoan: '112', du_co: tongCong } : { tai_khoan: '331', du_co: tongCong });
+      const post = await postInner(tx, {
+        so_ct: id, ngay: tx.today(), loai_ct: 'phieu_nhap',
+        nguoi: meId(api), ref_type: 'phieu_nhap', ref_id: id, entries,
+      }, meId(api));
+      if (!post.ok) throw new Error('Lỗi ghi sổ kế toán (nhập): ' + post.error);
+      // VAT đầu vào: lưu hóa đơn + hạch toán 133
+      if (tienThue > 0) {
+        const vatId = await tx.nextId('VAT');
+        await tx.run(
+          "INSERT INTO vat_invoice(id, ncc, so_hd, ngay, tien_hang, tien_thue, ty_le, ref_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+          vatId, rec.nha_cc || '', String(rec.vat?.so_hd || ''), rec.vat?.ngay || tx.today(), sum, tienThue, Number(rec.vat?.ty_le) || 0, id
+        );
+      }
+      // Công nợ phải trả NCC (nếu chưa trả ngay)
+      if (!rec.tra_ngay && tongCong > 0) {
+        const cnId = await tx.nextId('CN');
+        await tx.run(
+          "INSERT INTO cong_no(id, loai, doi_tac, ky_hieu, ref_type, ref_id, ngay, han_tt, so_tien, da_tt, con_no) VALUES($1,'phai_tra',$2,$3,'phieu_nhap',$4,$5,$6,$7,0,$7)",
+          cnId, rec.nha_cc || rec.ncc_id || '', id, id, tx.today(), rec.han_tt || '', tongCong
+        );
+      }
+    }
     // Liên thông: nếu nhập phục vụ SC → kiểm tra nhập đủ rồi mới xuất tự động (đúng 1 PXX/SC)
     for (const sid of Object.keys(scIds)) {
       await autoXuatSC({ db: tx, auth: api.auth, perm: api.perm }, sid, true);
     }
     return { ok: true, id, tong: sum, loai_nhap: loai };
   });
+  if (res && res.ok) {
+    try { const u = api.auth.current(); await logActivity(api.db, { actor_id: u?.id, actor_role: u?.role, hanh_dong: 'kho_nhap', doi_tuong: 'phieu_nhap', doi_tuong_id: res.id, mo_ta: 'Nhập kho' }); } catch (_) {}
+  }
+  return res;
 }
 
 /* ---------------- xuất kho ---------------- */
 export async function phXuatList(
-  api: KhoApi
-): Promise<Array<PhieuXuatRow & { tong: number; so_dong: number }>> {
+  api: KhoApi,
+  q: { page?: unknown; limit?: unknown } = {}
+): Promise<Array<PhieuXuatRow & { tong: number; so_dong: number }> & { total: number; page: number; limit: number; pages: number }> {
   await checkLock(api, 'kho', 'xem');
-  return api.db.rows<PhieuXuatRow & { tong: number; so_dong: number }>(
+  const { page, limit } = normPage(q);
+  const rows = await paginate<PhieuXuatRow & { tong: number; so_dong: number }>(
+    api.db,
     "SELECT p.*, (SELECT COALESCE(SUM(thanh),0) FROM phieu_xuat_ct c WHERE c.ph_id=p.id AND c.deleted_at='') tong, " +
-    "(SELECT COUNT(*) FROM phieu_xuat_ct c WHERE c.ph_id=p.id AND c.deleted_at='') so_dong " +
-    "FROM phieu_xuat p WHERE p.deleted_at='' ORDER BY p.ngay DESC, p.id DESC"
+      "(SELECT COUNT(*) FROM phieu_xuat_ct c WHERE c.ph_id=p.id AND c.deleted_at='') so_dong " +
+      "FROM phieu_xuat p",
+    " WHERE p.deleted_at=''", [], 'ORDER BY p.ngay DESC, p.id DESC', page, limit, 'phieu_xuat p'
   );
+  (rows as any).total = rows.total;
+  (rows as any).page = rows.page;
+  (rows as any).limit = rows.limit;
+  (rows as any).pages = rows.pages;
+  return rows as any;
 }
 
 export async function phXuatGet(
@@ -588,14 +689,15 @@ export async function phXuatCreate(
 ): Promise<{ ok: boolean; id?: string; tong?: number; loai_xuat?: string; error?: string }> {
   await checkLock(api, 'kho', 'xuat');
   rec = rec || {};
+  const isTest = api.auth.current()?.role === 'admin' ? 1 : 0;
   const loai = rec.loai_xuat === 'cu_hong' ? 'cu_hong' : 'dung';
   const items = (rec.items || []).filter((i) => Number(i.so_luong) > 0);
   if (!items.length) return { ok: false, error: 'Không có hàng xuất.' };
-  return api.db.transaction(async (tx) => {
+  const res = await api.db.transaction(async (tx) => {
     const id = await tx.nextId('PXX');
     await tx.run(
-      'INSERT INTO phieu_xuat(id, ngay, nguoi_lap, ref_sc, ghi_chu, nguoi_nhan, loai_xuat) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      id, tx.today(), meId(api), rec.ref_sc || '', rec.ghi_chu || '', rec.nguoi_nhan || '', loai
+      'INSERT INTO phieu_xuat(id, ngay, nguoi_lap, ref_sc, ghi_chu, nguoi_nhan, loai_xuat, is_test) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      id, tx.today(), meId(api), rec.ref_sc || '', rec.ghi_chu || '', rec.nguoi_nhan || '', loai, isTest
     );
     let tong = 0;
     for (const it of items) {
@@ -618,8 +720,21 @@ export async function phXuatCreate(
     const sumRow = await tx.row<{ s: number }>('SELECT COALESCE(SUM(thanh),0) s FROM phieu_xuat_ct WHERE ph_id=$1', id);
     const sum = Number(sumRow?.s || 0);
     await tx.audit('kho', 'phieu_xuat', String(id), meId(api), (loai === 'cu_hong' ? 'Xuất thanh lý kho hư hỏng ' : 'Xuất kho ') + id);
+    // GĐ2: ghi sổ kế toán — xuất kho dùng → Nợ 154 / Có 152 (giá vốn), ref theo SC nếu có
+    if (loai === 'dung' && sum > 0) {
+      const post = await postInner(tx, {
+        so_ct: id, ngay: tx.today(), loai_ct: 'phieu_xuat',
+        nguoi: meId(api), ref_type: 'phieu_xuat', ref_id: rec.ref_sc || id,
+        entries: [{ tai_khoan: '154', du_no: sum }, { tai_khoan: '152', du_co: sum }],
+      }, meId(api));
+      if (!post.ok) throw new Error('Lỗi ghi sổ kế toán (xuất): ' + post.error);
+    }
     return { ok: true, id, tong: sum, loai_xuat: loai };
   });
+  if (res && res.ok) {
+    try { const u = api.auth.current(); await logActivity(api.db, { actor_id: u?.id, actor_role: u?.role, hanh_dong: 'kho_xuat', doi_tuong: 'phieu_xuat', doi_tuong_id: res.id, mo_ta: 'Xuất kho' }); } catch (_) {}
+  }
+  return res;
 }
 
 /* ---------------- Danh sách VT thanh lý ---------------- */
@@ -648,52 +763,64 @@ export async function thanhLyList(
 
 /* ---------------- GĐ3.7: vận hành 8 bước — bổ trợ kho/xưởng ---------------- */
 
-/** A4: GĐ3.7 — Tự động tạo phiếu nhập VT cũ/hỏng + ghi bảng thanh lý từ danh sách VT
- *  loại thay thế (loai_xu_ly='thay_the') của SC. Chỉ khi SC còn trạng thái cho phép,
- *  tránh tạo trùng (đã có phiếu cu_hong ref_sc cho cùng SC → báo lỗi) — chống IDOR/bùng nổ dữ liệu. */
+/**
+ * A4: GĐ3.7 — Tạo phiếu nhập VT cũ/hỏng (loai_nhap='cu_hong') từ danh sách VT thay thế
+ * (loai_xu_ly='thay_the') của SC. Chạy BÊN TRONG transaction của caller (tx: Db),
+ * KHÔNG tự mở transaction (tránh nested transaction bị chặn). Dùng cho:
+ *  - autoGenCuHong (tạo thủ công, role kho.tao)
+ *  - scNghiem (P2.2b: tự động thu hồi VT cũ khi nghiệm thu SC có vật tư thay thế)
+ * Đã có phiếu cu_hong cho SC → báo lỗi (chống tạo trùng / bùng nổ dữ liệu).
+ */
+export async function genCuHongInTx(
+  tx: Db,
+  scId: string,
+  actor: string
+): Promise<{ ok: boolean; id?: string; so_dong?: number; error?: string }> {
+  scId = String(scId || '');
+  const sc = await tx.row<{ id: string; trang_thai: string }>("SELECT id, trang_thai FROM phieu_sua WHERE id=$1 AND deleted_at=''", scId);
+  if (!sc) return { ok: false, error: 'Không tìm thấy phiếu sửa chữa.' };
+  if (['dang_sua', 'cho_nghiem', 'da_hoan'].indexOf(sc.trang_thai) < 0) {
+    return { ok: false, error: 'Chỉ tạo VT cũ/hỏng khi phiếu đang sửa/đã hoàn.' };
+  }
+  const trung = await tx.row<{ c: number }>(
+    "SELECT COUNT(*) c FROM phieu_nh_ct WHERE ref_sc=$1 AND ph_id IN (SELECT id FROM phieu_nhap WHERE loai_nhap='cu_hong' AND deleted_at='') AND deleted_at=''",
+    scId
+  );
+  if (Number(trung && trung.c) > 0) return { ok: false, error: 'Phiếu này đã tạo nhập VT cũ/hỏng rồi.' };
+  const thay = (await tx.rows<import('./types.js').ScVattuRow>(
+    "SELECT * FROM sc_vattu WHERE sc_id=$1 AND loai_xu_ly='thay_the' AND deleted_at=''", scId
+  )).filter((v) => Number(v.so_luong) > 0);
+  if (!thay.length) return { ok: false, error: 'Phiếu này không có vật tư loại thay thế.', so_dong: 0 };
+  const id = await tx.nextId('PXN');
+  await tx.run(
+    'INSERT INTO phieu_nhap(id, ngay, nguoi_lap, nha_cc, tong, ghi_chu, loai_nhap) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    id, tx.today(), actor, 'Thu hồi nội bộ', 0,
+    'Tự động từ SC ' + scId + ' (vật tư thay thế cũ/hỏng)', 'cu_hong'
+  );
+  for (const v of thay) {
+    const sl = Number(v.so_luong) || 0;
+    if (sl <= 0) continue;
+    await tx.run(
+      'INSERT INTO phieu_nh_ct(ph_id, vattu_id, ten, donvi, so_luong, dgia, thanh, ref_sc, ncc) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      id, Number(v.vattu_id) || 0, v.ten, v.donvi, sl, 0, 0, scId, 'Thu hồi nội bộ'
+    );
+    await tx.run('UPDATE vattu SET ton_cu_hong = ton_cu_hong + $1 WHERE id=$2', sl, Number(v.vattu_id) || 0);
+    await tx.run(
+      'INSERT INTO phieu_nhap_thanhly(ph_id, vattu_id, ten, donvi, so_luong, ly_do, gia_thanh_ly) VALUES($1,$2,$3,$4,$5,$6,$7)',
+      id, Number(v.vattu_id) || 0, v.ten, v.donvi, sl, 'Thay thế — tự động từ SC ' + scId, 0
+    );
+  }
+  await tx.audit('kho', 'phieu_nhap', String(id), actor, 'Tự động nhập VT cũ/hỏng từ SC ' + scId);
+  return { ok: true, id, so_dong: thay.length };
+}
+
+/** A4: GĐ3.7 — Tạo thủ công phiếu nhập VT cũ/hỏng (role kho.tao). */
 export async function autoGenCuHong(
   api: KhoApi,
   scId: string
 ): Promise<{ ok: boolean; id?: string; so_dong?: number; error?: string }> {
   await checkLock(api, 'kho', 'tao');
-  scId = String(scId || '');
-  const sc = await api.db.row<{ id: string; trang_thai: string }>("SELECT id, trang_thai FROM phieu_sua WHERE id=$1 AND deleted_at=''", scId);
-  if (!sc) return { ok: false, error: 'Không tìm thấy phiếu sửa chữa.' };
-  if (['dang_sua', 'cho_nghiem', 'da_hoan'].indexOf(sc.trang_thai) < 0) {
-    return { ok: false, error: 'Chỉ tạo VT cũ/hỏng khi phiếu đang sửa/đã hoàn.' };
-  }
-  const trung = await api.db.row<{ c: number }>(
-    "SELECT COUNT(*) c FROM phieu_nh_ct WHERE ref_sc=$1 AND ph_id IN (SELECT id FROM phieu_nhap WHERE loai_nhap='cu_hong' AND deleted_at='') AND deleted_at=''",
-    scId
-  );
-  if (Number(trung && trung.c) > 0) return { ok: false, error: 'Phiếu này đã tạo nhập VT cũ/hỏng rồi.' };
-  const thay = (await api.db.rows<import('./types.js').ScVattuRow>(
-    "SELECT * FROM sc_vattu WHERE sc_id=$1 AND loai_xu_ly='thay_the' AND deleted_at=''", scId
-  )).filter((v) => Number(v.so_luong) > 0);
-  if (!thay.length) return { ok: false, error: 'Phiếu này không có vật tư loại thay thế.' };
-  return api.db.transaction(async (tx) => {
-    const id = await tx.nextId('PXN');
-    await tx.run(
-      'INSERT INTO phieu_nhap(id, ngay, nguoi_lap, nha_cc, tong, ghi_chu, loai_nhap) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      id, tx.today(), meId(api), 'Thu hồi nội bộ', 0,
-      'Tự động từ SC ' + scId + ' (vật tư thay thế cũ/hỏng)', 'cu_hong'
-    );
-    for (const v of thay) {
-      const sl = Number(v.so_luong) || 0;
-      if (sl <= 0) continue;
-      await tx.run(
-        'INSERT INTO phieu_nh_ct(ph_id, vattu_id, ten, donvi, so_luong, dgia, thanh, ref_sc, ncc) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-        id, Number(v.vattu_id) || 0, v.ten, v.donvi, sl, 0, 0, scId, 'Thu hồi nội bộ'
-      );
-      await tx.run('UPDATE vattu SET ton_cu_hong = ton_cu_hong + $1 WHERE id=$2', sl, Number(v.vattu_id) || 0);
-      await tx.run(
-        'INSERT INTO phieu_nhap_thanhly(ph_id, vattu_id, ten, donvi, so_luong, ly_do, gia_thanh_ly) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        id, Number(v.vattu_id) || 0, v.ten, v.donvi, sl, 'Thay thế — tự động từ SC ' + scId, 0
-      );
-    }
-    await tx.audit('kho', 'phieu_nhap', String(id), meId(api), 'Tự động nhập VT cũ/hỏng từ SC ' + scId);
-    return { ok: true, id, so_dong: thay.length };
-  });
+  return api.db.transaction((tx) => genCuHongInTx(tx, scId, meId(api)));
 }
 
 /** A5: GĐ3.7 — Danh sách đề nghị mua liên kết với 1 SC
@@ -714,4 +841,114 @@ export async function dmListBySc(
     scId, scId
   );
   return rows.map((d) => ({ ...d, label: DM_TT[d.trang_thai] || d.trang_thai }));
+}
+
+/* ===================== v4.3 — BÁO CÁO & TRUY VẾT (P4) ===================== */
+
+export interface TonKhoRow {
+  id: number;
+  ma: string;
+  ten: string;
+  nhom: string;
+  donvi: string;
+  ton_dau: number;
+  nhap: number;
+  xuat: number;
+  ton_cuoi: number;
+}
+
+/** B2: Báo cáo Xuất–Nhập–Tồn tổng hợp theo vật tư trong kỳ [from, to]. */
+export async function tonKhoReport(
+  api: KhoApi,
+  q: { from: string; to: string }
+): Promise<TonKhoRow[]> {
+  await checkLock(api, 'kho', 'xem');
+  const from = String(q.from || '');
+  const to = String(q.to || '');
+  const rows = await api.db.rows<{ id: number; code: string; name: string; nhom: string; donvi: string; ton_cuoi: number; nhap: number; xuat: number }>(
+    "SELECT v.id, v.code, v.name, v.nhom, v.donvi, v.ton AS ton_cuoi, " +
+    "COALESCE(n.nhap,0) AS nhap, COALESCE(x.xuat,0) AS xuat " +
+    "FROM vattu v " +
+    "LEFT JOIN (SELECT ct.vattu_id, SUM(ct.so_luong) AS nhap FROM phieu_nh_ct ct JOIN phieu_nhap p ON p.id=ct.ph_id " +
+    "  WHERE p.ngay>=$1 AND p.ngay<=$2 AND ct.deleted_at='' AND p.deleted_at='' GROUP BY ct.vattu_id) n ON n.vattu_id=v.id " +
+    "LEFT JOIN (SELECT ct.vattu_id, SUM(ct.so_luong) AS xuat FROM phieu_xuat_ct ct JOIN phieu_xuat p ON p.id=ct.ph_id " +
+    "  WHERE p.ngay>=$1 AND p.ngay<=$2 AND ct.deleted_at='' AND p.deleted_at='' GROUP BY ct.vattu_id) x ON x.vattu_id=v.id " +
+    "WHERE v.deleted_at='' AND v.active=1",
+    from, to
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    ma: r.code || '',
+    ten: r.name || '',
+    nhom: r.nhom || '',
+    donvi: r.donvi || '',
+    nhap: r2(r.nhap),
+    xuat: r2(r.xuat),
+    ton_cuoi: r2(r.ton_cuoi),
+    ton_dau: r2(r.ton_cuoi - r.nhap + r.xuat),
+  }));
+}
+
+export interface VatTuHistoryRow {
+  ngay: string;
+  loai: 'nhap' | 'xuat';
+  chung_tu: string;
+  so_luong: number;
+  donvi: string;
+  ten: string;
+}
+
+/** B3: Lịch sử nhập/xuất của 1 vật tư (mới nhất trước). */
+export async function vatTuHistory(
+  api: KhoApi,
+  vattuId: number | string
+): Promise<VatTuHistoryRow[]> {
+  await checkLock(api, 'kho', 'xem');
+  const id = Number(vattuId);
+  const nhap = await api.db.rows<{ ngay: string; loai: string; chung_tu: string; so_luong: number; donvi: string; ten: string }>(
+    "SELECT p.ngay, 'nhap' AS loai, p.id AS chung_tu, ct.so_luong, ct.donvi, ct.ten " +
+    "FROM phieu_nh_ct ct JOIN phieu_nhap p ON p.id=ct.ph_id " +
+    "WHERE ct.vattu_id=$1 AND ct.deleted_at='' AND p.deleted_at=''",
+    id
+  );
+  const xuat = await api.db.rows<{ ngay: string; loai: string; chung_tu: string; so_luong: number; donvi: string; ten: string }>(
+    "SELECT p.ngay, 'xuat' AS loai, p.id AS chung_tu, ct.so_luong, ct.donvi, ct.ten " +
+    "FROM phieu_xuat_ct ct JOIN phieu_xuat p ON p.id=ct.ph_id " +
+    "WHERE ct.vattu_id=$1 AND ct.deleted_at='' AND p.deleted_at=''",
+    id
+  );
+  return [...nhap, ...xuat]
+    .map((r) => ({ ngay: r.ngay || '', loai: (r.loai as 'nhap' | 'xuat'), chung_tu: r.chung_tu || '', so_luong: r2(r.so_luong), donvi: r.donvi || '', ten: r.ten || '' }))
+    .sort((a, b) => (b.ngay || '').localeCompare(a.ngay || ''));
+}
+
+export interface ChuyenKhoArg {
+  tu_vattu_id: number | string;
+  den_vattu_id: number | string;
+  sl: number;
+  note?: string;
+}
+
+/** B4: Chuyển kho nội bộ — chuyển sl tồn từ vật tư A sang B (cùng 1 kho logic,
+ *  đại diện 2 vị trí lưu). KHÔNG đổi tiền. Rollback nếu A không đủ tồn. */
+export async function phChuyenKhoCreate(api: KhoApi, arg: ChuyenKhoArg): Promise<{ ok: true; id: string }> {
+  await checkLock(api, 'kho', 'tao');
+  const tu = Number(arg.tu_vattu_id);
+  const den = Number(arg.den_vattu_id);
+  const sl = Number(arg.sl);
+  if (!(tu > 0) || !(den > 0) || tu === den) throw new Error('Vật tư nguồn/đích không hợp lệ.');
+  if (!(sl > 0)) throw new Error('Số lượng chuyển phải > 0.');
+  const id = await api.db.transaction(async (tx) => {
+    const a = await tx.row<{ ton: number; name: string }>('SELECT ton, name FROM vattu WHERE id=$1 AND deleted_at=$2', tu, '');
+    if (!a) throw new Error('Vật tư nguồn không tồn tại.');
+    if (Number(a.ton) < sl) throw new Error('Vật tư nguồn không đủ tồn (' + Number(a.ton) + ' < ' + sl + ').');
+    const b = await tx.row<{ id: number }>('SELECT id FROM vattu WHERE id=$1 AND deleted_at=$2', den, '');
+    if (!b) throw new Error('Vật tư đích không tồn tại.');
+    const newId = await tx.nextId('CK');
+    await tx.run('UPDATE vattu SET ton = ton - $1 WHERE id=$2', sl, tu);
+    await tx.run('UPDATE vattu SET ton = ton + $1 WHERE id=$2', sl, den);
+    await tx.audit('chuyen_kho', 'vattu', tu, meId(api), `Chuyển ${sl} từ VT${tu}→VT${den}: ${arg.note || ''}`);
+    return newId;
+  });
+  return { ok: true, id };
 }

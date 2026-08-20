@@ -6,6 +6,7 @@
  * CLI: npx tsx packages/db/src/seed.ts (cần DATABASE_URL trong .env).
  */
 import pg from 'pg';
+import crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -41,6 +42,7 @@ async function seedConfig(client: SqlClient): Promise<void> {
     ['counter_PXN', '0'],
     ['counter_PXX', '0'],
     ['counter_BD', '0'],
+    ['counter_HO', '0'],
   ];
   for (const [k, v] of configs) {
     await exec(client,
@@ -86,22 +88,19 @@ async function seedXe(client: SqlClient, seedDir: string): Promise<void> {
   console.log(`��� ${xeData.length} xe seeded`);
 }
 
-/** Seed users mặc định (mật khẩu: cencom@123, must_change=1) */
+/** Seed users mặc định (5 vai lean, mật khẩu: cencom@123, must_change=1)
+ *  Hash replicate EXACT auth.ts hashPassword: 'scrypt:' + salt + ':' + scryptSync(pw,salt,64).hex
+ *  Dùng salt cố định để seed idempotent (giống bản cũ). */
 async function seedUsers(client: SqlClient): Promise<void> {
-  const passHash = 'scrypt:salt123:0705035993af61b00c27f0a003991fcfc0bef17199637781e1c8ffd470e65e5763ad6c59459be983b39523685400695e7815e3876ec5986582af384487ff7a0b';
+  const SALT = 'salt123';
+  const passHash = 'scrypt:' + SALT + ':' + crypto.scryptSync('cencom@123', SALT, 64).toString('hex');
 
-  const users = [
-    ['admin-1', 'Admin', 'admin', '', passHash, 1, 1, 'IT'],
-    ['tho-1', 'Thợ 1', 'tho', '', passHash, 1, 1, 'Xưởng'],
-    ['tho-2', 'Thợ 2', 'tho', '', passHash, 1, 1, 'Xưởng'],
-    ['tho-3', 'Thợ 3', 'tho', '', passHash, 1, 1, 'Xưởng'],
-    ['tho-4', 'Thợ 4', 'tho', '', passHash, 1, 1, 'Xưởng'],
-    ['tho-5', 'Thợ 5', 'tho', '', passHash, 1, 1, 'Xưởng'],
-    ['khoa-1', 'Thủ kho', 'khoa', '', passHash, 1, 1, 'Kho'],
-    ['ketoan-1', 'Kế toán', 'ketoan', '', passHash, 1, 1, 'Kế toán'],
-    ['quanly-1', 'Quản lý', 'quanly', '', passHash, 1, 1, 'Đội xe'],
-    ['giamdoc-1', 'Giám đốc', 'giamdoc', '', passHash, 1, 1, 'Ban giám đốc'],
-    ['xuong-1', 'Quản lý xưởng', 'xuong', '', passHash, 1, 1, 'Xưởng'],
+  const users: Array<[string, string, string, string, string, number, number, string]> = [
+    ['U-ADMIN', 'Quản trị viên', 'admin', '', passHash, 1, 1, ''],
+    ['U-GIAMDOC', 'Giám đốc', 'giamdoc', '', passHash, 1, 1, 'Ban giám đốc'],
+    ['U-XUONG', 'Xưởng trưởng', 'xuong', '', passHash, 1, 1, 'Xưởng'],
+    ['U-KETOAN', 'Kế toán', 'ketoan', '', passHash, 1, 1, 'Kế toán'],
+    ['U-KHO', 'Thủ kho', 'kho', '', passHash, 1, 1, 'Kho'],
   ];
 
   for (const [id, name, role, phone, hash, active, mustChange, pb] of users) {
@@ -112,18 +111,21 @@ async function seedUsers(client: SqlClient): Promise<void> {
       [id, name, role, phone, hash, active, mustChange, pb]
     );
   }
-  console.log(`��� ${users.length} users seeded`);
+  console.log(`✅ ${users.length} users seeded`);
 }
 
 /** Seed phan_quyen từ MATRIX (7 vai × 12 module) */
 async function seedPhanQuyen(client: SqlClient): Promise<void> {
   const matrix: Record<string, Record<string, string[]>> = {
     tho: { sc: ['xem', 'tao', 'sua'], asset: ['xem'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem', 'tao', 'sua'] },
-    khoa: { kho: ['xem', 'tao', 'sua', 'xuat'], mua: ['xem', 'tao'], sc: ['xem'], xe: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem'] },
+    khovattu: { kho: ['xem', 'tao', 'sua', 'xuat'], mua: ['xem', 'tao'], sc: ['xem'], xe: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem'] },
+    pttb: { sc: ['xem', 'duy', 'kehoach'], mua: ['xem', 'duy', 'tao'], de_xuat: ['xem', 'duy'], kho: ['xem'], asset: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], xuong: ['xem'], gd2: ['xem'], search: ['xem'], ke_toan: ['xem'] },
+    laixe: { de_xuat: ['xem', 'tao', 'sua'], xe: ['xem'], sc: ['xem'], chat: ['xem', 'tao'], gd2: ['xem'], search: ['xem'] },
     ketoan: { mua: ['xem', 'tao', 'duy'], asset: ['xem', 'quyet'], sc: ['xem', 'tao', 'kehoach'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem'] },
     quanly: { sc: ['xem', 'duy', 'kehoach'], asset: ['xem', 'quyet'], kho: ['xem'], mua: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], de_xuat: ['xem', 'duy'], xuong: ['xem'], gd2: ['xem', 'tao', 'sua'] },
     giamdoc: { sc: ['xem', 'duy', 'kehoach'], asset: ['xem', 'duy'], kho: ['xem'], mua: ['xem', 'duy'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], de_xuat: ['xem', 'duy'], xuong: ['xem'], gd2: ['xem', 'tao', 'sua'] },
     xuong: { de_xuat: ['xem', 'tao', 'sua'], xuong: ['xem'], sc: ['xem', 'tao', 'sua', 'kehoach'], asset: ['xem'], kho: ['xem'], xe: ['xem'], report: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem', 'tao', 'sua'] },
+    kho: { kho: ['xem', 'tao', 'sua', 'xuat'], mua: ['xem', 'tao'], sc: ['xem'], xe: ['xem'], chat: ['xem', 'tao', 'sua'], gd2: ['xem'] },
     admin: { all: ['xem', 'tao', 'sua', 'xoa', 'duy', 'quyet', 'kehoach', 'xuat'] },
   };
 
@@ -196,6 +198,17 @@ async function seedVattu(client: SqlClient): Promise<void> {
   console.log(`✅ ${vattuData.length} vattu seeded`);
 }
 
+/** Seed hệ thống tài khoản kế toán (CoA) + cài đặt từ coa_seed.sql (idempotent). */
+async function seedCoA(client: SqlClient): Promise<void> {
+  const sql = await fs.readFile(path.join(__dirname, 'coa_seed.sql'), 'utf-8');
+  for (const stmt of sql.split(';')) {
+    const s = stmt.trim();
+    if (!s) continue;
+    await exec(client, s);
+  }
+  console.log('✅ CoA (kế toán) seeded');
+}
+
 /** Library entry: seedAll(client, seedDir) — dùng trong test và script khác. */
 export async function seedAll(client: SqlClient, seedDir: string): Promise<void> {
   console.log('���� Bắt đầu seed dữ liệu...');
@@ -203,13 +216,14 @@ export async function seedAll(client: SqlClient, seedDir: string): Promise<void>
   await seedPhongBan(client);
   await seedXe(client, seedDir);
   await seedVattu(client);
+  await seedCoA(client);
   await seedUsers(client);
   await seedPhanQuyen(client);
   console.log('��� Seed hoàn tất!');
 }
 
 /** CLI entry: chỉ chạy khi file được execute trực tiếp (tsx seed.ts). */
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const { Pool } = pg;
   const DATABASE_URL = process.env['DATABASE_URL'];
   if (!DATABASE_URL) {
@@ -222,8 +236,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     ssl: DATABASE_URL.includes('supabase') ? { rejectUnauthorized: false } : false,
   });
   const client: SqlClient = {
-    query: async <T>(text: string, params?: any[]): Promise<{ rows: T[] }> =>
-      (await pool.query<T>(text, params)) as { rows: T[] },
+    query: async <T>(text: string, params?: any[]): Promise<{ rows: T[] }> => {
+      const r = await pool.query(text, params);
+      return { rows: r.rows as T[] };
+    },
   };
   const seedDir = path.join(__dirname, '..', 'seed');
   await seedAll(client, seedDir)

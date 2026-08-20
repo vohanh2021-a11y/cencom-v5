@@ -7,6 +7,8 @@
  */
 import type { Db } from './db.js';
 import * as kho from './kho.js';
+import { paginate, normPage } from './list.js';
+import { logActivity } from './activity.js';
 
 export interface Actor {
   id: string;
@@ -37,18 +39,22 @@ async function checkLock(api: BaoGiaApi, m: string, f: string): Promise<void> {
   if (!(await api.perm.can(api.db, u.role, m, f))) throw new Error('Không đủ quyền: cần ' + m + '.' + f);
 }
 
-export async function baoGiaList(api: BaoGiaApi, q: Record<string, unknown> = {}): Promise<Array<Record<string, unknown>>> {
-  await checkLock(api, 'mua', 'xem');
-  const db = api.db;
-  let sql = "SELECT * FROM bao_gia_ncc WHERE deleted_at=''";
-  const a: unknown[] = [];
-  if (q.sc_id) { sql += ' AND sc_id=$' + (a.length + 1); a.push(q.sc_id); }
-  if (q.dm_id) { sql += ' AND dm_id=$' + (a.length + 1); a.push(q.dm_id); }
-  if (q.loai_chung_tu) { sql += ' AND loai_chung_tu=$' + (a.length + 1); a.push(q.loai_chung_tu); }
-  const limit = Math.min(Number(q.limit) || 500, 2000);
-  sql += ' ORDER BY id DESC LIMIT ' + limit;
-  return db.rows<Record<string, unknown>>(sql, ...a);
-}
+export async function baoGiaList(api: BaoGiaApi, q: Record<string, unknown> = {}): Promise<Array<Record<string, unknown>> & { total: number; page: number; limit: number; pages: number }> {
+    await checkLock(api, 'mua', 'xem');
+    const db = api.db;
+    const a: unknown[] = [];
+    let where = " WHERE deleted_at=''";
+    if (q.sc_id) { where += ' AND sc_id=$' + (a.length + 1); a.push(q.sc_id); }
+    if (q.dm_id) { where += ' AND dm_id=$' + (a.length + 1); a.push(q.dm_id); }
+    if (q.loai_chung_tu) { where += ' AND loai_chung_tu=$' + (a.length + 1); a.push(q.loai_chung_tu); }
+    const { page, limit } = normPage({ page: q.page, limit: q.limit });
+    const rows = await paginate<Record<string, unknown>>(db, 'SELECT * FROM bao_gia_ncc t', where, a, 'ORDER BY t.id DESC', page, limit, 'bao_gia_ncc t');
+    (rows as any).total = rows.total;
+    (rows as any).page = rows.page;
+    (rows as any).limit = rows.limit;
+    (rows as any).pages = rows.pages;
+    return rows as any;
+  }
 
 export async function baoGiaGet(api: BaoGiaApi, id: number | string): Promise<Record<string, unknown> | null> {
   await checkLock(api, 'mua', 'xem');
@@ -74,6 +80,7 @@ export async function baoGiaCreate(
 ): Promise<{ ok: boolean; id?: number; error?: string }> {
   await checkLock(api, 'mua', 'tao');
   const db = api.db;
+  const isTest = api.auth.current()?.role === 'admin' ? 1 : 0;
   const ncc_ten = String(rec.ncc_ten || '').trim();
   if (!ncc_ten) return { ok: false, error: 'Bắt buộc nhập tên nhà cung cấp (ncc_ten).' };
 
@@ -97,17 +104,18 @@ export async function baoGiaCreate(
   const ngay = String(rec.ngay || db.today());
 
   const r = await db.row<{ id: number }>(
-    'INSERT INTO bao_gia_ncc(dm_id, sc_id, ncc_ten, ncc_dia_chi, ncc_sdt, ngay, loai_chung_tu, ref_phieu_nhap, nguoi_lap) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
+    'INSERT INTO bao_gia_ncc(dm_id, sc_id, ncc_ten, ncc_dia_chi, ncc_sdt, ngay, loai_chung_tu, ref_phieu_nhap, nguoi_lap, is_test) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',
     dmId, scId && Number(scCheck?.c) ? scId : '',
     ncc_ten, String(rec.ncc_dia_chi || '').trim(),
     String(rec.ncc_sdt || '').trim(), ngay, loai_ct,
-    String(rec.ref_phieu_nhap || '').trim(), meId(api)
+    String(rec.ref_phieu_nhap || '').trim(), meId(api), isTest
   );
   const newId = Number(r?.id);
   await db.audit('mua', 'bao_gia_ncc', String(newId), meId(api), 'Tạo chứng từ NCC (' + loai_ct + ') ' + ncc_ten);
   if (scId && Number(scCheck?.c)) {
     await db.run("UPDATE phieu_sua SET trang_thai='da_duyet' WHERE id=$1 AND trang_thai='de_xuat'", scId);
   }
+  try { const u = api.auth.current(); await logActivity(api.db, { actor_id: u?.id, actor_role: u?.role, hanh_dong: 'baogia_luu', doi_tuong: 'baogia', doi_tuong_id: String(newId), sc_id: scId, mo_ta: 'Lưu báo giá NCC' }); } catch (_) {}
   return { ok: true, id: newId };
 }
 

@@ -7,6 +7,9 @@
  */
 import type { Db } from './db.js';
 import type { PhieuSuaRow, ScCongViecRow, ScVattuRow, CongViecRow } from './types.js';
+import { paginate, normPage } from './list.js';
+import { genCuHongInTx } from './kho.js';
+import { logActivity } from './activity.js';
 
 /* ---------- auth/perm helper (port giữ nguyên sc.js) ---------- */
 export interface Actor {
@@ -124,6 +127,7 @@ export async function scCreate(
 ): Promise<{ ok: boolean; id?: string; tong?: number; error?: string }> {
   await checkLock(api, 'sc', 'tao');
   rec = rec || {};
+  const isTest = api.auth.current()?.role === 'admin' ? 1 : 0;
   const bks = String(rec.bks || '').trim().toUpperCase();
   if (!bks) return { ok: false, error: 'Thiếu biển số xe.' };
   const xe = await api.db.xeByBks(bks);
@@ -133,7 +137,7 @@ export async function scCreate(
     // Mã phiếu sửa chữa trong/ngoài khác nhau: SC- (nội) / SCN- (sửa chữa bên ngoài)
     const id = await tx.nextId(rec.la_sua_ngoai ? 'SCN' : 'SC');
     await tx.run(
-      'INSERT INTO phieu_sua(id, bks, phieu_kt, nguoi_lap, ngay, mo_ta, trang_thai, ghi_chu, de_xuat_id, ngay_du_kien, tinh_trang_pt, la_sua_ngoai, don_vi_ngoai) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+      'INSERT INTO phieu_sua(id, bks, phieu_kt, nguoi_lap, ngay, mo_ta, trang_thai, ghi_chu, de_xuat_id, ngay_du_kien, tinh_trang_pt, la_sua_ngoai, don_vi_ngoai, is_test) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
       id,
       bks,
       rec.phieu_kt || '',
@@ -146,7 +150,8 @@ export async function scCreate(
       rec.ngay_du_kien || '',
       rec.tinh_trang_pt || '',
       rec.la_sua_ngoai ? 1 : 0,
-      String(rec.don_vi_ngoai || '')
+      String(rec.don_vi_ngoai || ''),
+      isTest
     );
     for (const c of rec.congviec || []) {
       const cat = c.congviec_id
@@ -192,6 +197,14 @@ export async function scCreate(
     await syncPrices(tx, id);
     await recalc(tx, id);
     await tx.audit('sc', 'phieu_sua', id, meId(api), 'Tạo phiếu sửa chữa ' + id + ' cho ' + bks);
+    try {
+      const u = api.auth.current();
+      await logActivity(api.db, {
+        actor_id: u?.id, actor_role: u?.role,
+        hanh_dong: 'sc_tao', doi_tuong: 'sc', doi_tuong_id: id,
+        sc_id: id, mo_ta: 'Tạo phiếu sửa chữa'
+      });
+    } catch (_) { /* log không được thì bỏ qua */ }
     const t = await recalc(tx, id);
     return { ok: true, id, tong: t.tong };
   });
@@ -213,38 +226,27 @@ async function syncPrices(db: Db, scId: string): Promise<void> {
 /* ---------------- Danh sách / chi tiết ---------------- */
 export async function scList(
   api: ScApi,
-  q: { bks?: string; trang_thai?: string; tu?: string; den?: string; limit?: number } = {}
-): Promise<Array<Record<string, unknown>>> {
+  q: { bks?: string; trang_thai?: string; tu?: string; den?: string; page?: unknown; limit?: unknown } = {}
+): Promise<Array<Record<string, unknown>> & { total: number; page: number; limit: number; pages: number }> {
   await checkLock(api, 'sc', 'xem');
   q = q || {};
-  let sql =
+  const u = api.auth.current();
+  const a: unknown[] = [];
+  let where = " WHERE p.deleted_at=''";
+  if (q.bks) { where += ' AND upper(p.bks)=upper($' + (a.length + 1) + ')'; a.push(q.bks); }
+  if (q.trang_thai) { where += ' AND p.trang_thai=$' + (a.length + 1); a.push(q.trang_thai); }
+  if (q.tu) { where += ' AND p.ngay>=$' + (a.length + 1); a.push(q.tu); }
+  if (q.den) { where += ' AND p.ngay<=$' + (a.length + 1); a.push(q.den); }
+  if (u && u.role === 'xuong') { where += ' AND p.nguoi_lap=$' + (a.length + 1); a.push(u.id); }
+  const { page, limit } = normPage(q);
+  const selectFrom =
     "SELECT p.*, (SELECT COUNT(*) FROM sc_congviec w WHERE w.sc_id=p.id AND w.deleted_at='') AS ncong, " +
     "(SELECT COUNT(*) FROM sc_vattu vv WHERE vv.sc_id=p.id AND vv.deleted_at='') AS nvt, " +
     '(SELECT u.name FROM users u WHERE u.id=p.nguoi_lap) AS nguoi_lap_name, ' +
     '(SELECT u.name FROM users u WHERE u.id=p.nguoi_duyet) AS nguoi_duyet_name ' +
-    "FROM phieu_sua p WHERE p.deleted_at=''";
-  const a: unknown[] = [];
-  if (q.bks) {
-    sql += ' AND upper(p.bks)=upper($' + (a.length + 1) + ')';
-    a.push(q.bks);
-  }
-  if (q.trang_thai) {
-    sql += ' AND p.trang_thai=$' + (a.length + 1);
-    a.push(q.trang_thai);
-  }
-  if (q.tu) {
-    sql += ' AND p.ngay>=$' + (a.length + 1);
-    a.push(q.tu);
-  }
-  if (q.den) {
-    sql += ' AND p.ngay<=$' + (a.length + 1);
-    a.push(q.den);
-  }
-  const limit = Math.min(+(q.limit as number) || 500, 5000);
-  sql += ' ORDER BY p.ngay DESC, p.id DESC LIMIT $' + (a.length + 1);
-  a.push(limit);
-  const raws = await api.db.rows<Record<string, unknown>>(sql, ...a);
-  return raws.map((r) => ({
+    'FROM phieu_sua p';
+  const raws = await paginate<Record<string, unknown>>(api.db, selectFrom, where, a, 'ORDER BY p.ngay DESC, p.id DESC', page, limit, 'phieu_sua p');
+  const mapped = raws.map((r) => ({
     id: r.id,
     bks: r.bks,
     phieu_kt: r.phieu_kt,
@@ -265,6 +267,11 @@ export async function scList(
     la_sua_ngoai: Number(r.la_sua_ngoai) || 0,
     don_vi_ngoai: r.don_vi_ngoai || '',
   }));
+  (mapped as any).total = raws.total;
+  (mapped as any).page = raws.page;
+  (mapped as any).limit = raws.limit;
+  (mapped as any).pages = raws.pages;
+  return mapped as any;
 }
 
 async function ktGet(api: ScApi, scId: string): Promise<Record<string, unknown> | null> {
@@ -402,6 +409,16 @@ export async function scApprove(
     } else {
       await tx.run("UPDATE phieu_sua SET trang_thai='tu_choi', ly_do_tu_choi=$1 WHERE id=$2", String(lyDo || ''), id);
     }
+    if (action !== 'ok') {
+      try {
+        const u = api.auth.current();
+        await logActivity(api.db, {
+          actor_id: u?.id, actor_role: u?.role,
+          hanh_dong: 'sc_tu_choi', doi_tuong: 'sc', doi_tuong_id: id,
+          sc_id: id, mo_ta: 'Từ chối phiếu'
+        });
+      } catch (_) { /* log không được thì bỏ qua */ }
+    }
     await tx.audit('approval', 'phieu_sua', id, meId(api), action === 'ok' ? 'Duyệt phiếu' : 'Từ chối phiếu');
     return { ok: true, trang_thai: action === 'ok' ? 'da_duyet' : 'tu_choi' };
   });
@@ -490,6 +507,14 @@ export async function scStart(api: ScApi, id: string): Promise<{ ok: boolean; er
     if (!exist) await snapshotSC(tx, id, meId(api));
     await khApplyToSC(tx, id);
     await tx.run("UPDATE phieu_sua SET trang_thai='dang_sua', ngay_bat_dau=$1 WHERE id=$2", tx.today(), id);
+    try {
+      const u = api.auth.current();
+      await logActivity(api.db, {
+        actor_id: u?.id, actor_role: u?.role,
+        hanh_dong: 'sc_bat_dau_sua', doi_tuong: 'sc', doi_tuong_id: id,
+        sc_id: id, mo_ta: 'Bắt đầu sửa chữa'
+      });
+    } catch (_) { /* log không được thì bỏ qua */ }
     await tx.audit('status', 'phieu_sua', id, meId(api), 'Bắt đầu sửa chữa');
     return { ok: true };
   });
@@ -730,6 +755,20 @@ export async function scNghiem(
       await tx.run("UPDATE phieu_sua SET trang_thai='dang_sua', ly_do_tu_choi=$1 WHERE id=$2", String(lyNgh || ''), scId);
     } else {
       await tx.run("UPDATE phieu_sua SET trang_thai='da_hoan', nguoi_nghiem=$1, ngay_nghiem=$2 WHERE id=$3", meId(api), tx.today(), scId);
+      try {
+        const u = api.auth.current();
+        await logActivity(api.db, {
+          actor_id: u?.id, actor_role: u?.role,
+          hanh_dong: 'sc_hoan_thanh', doi_tuong: 'sc', doi_tuong_id: scId,
+          sc_id: scId, mo_ta: 'Hoàn thành sửa chữa'
+        });
+      } catch (_) { /* log không được thì bỏ qua */ }
+      // P2.2b (Nguyên tắc 2 - QC206): tự động thu hồi VT cũ/hỏng từ vật tư thay thế khi nghiệm thu.
+      // Bỏ qua khi SC không có VT thay thế, hoặc đã thu hồi rồi (manual). Lỗi khác → rollback.
+      const thuHoi = await genCuHongInTx(tx, scId, meId(api));
+      if (!thuHoi.ok && !/(không có vật tư|đã tạo)/.test(thuHoi.error || '')) {
+        throw new Error('P2.2b: ' + (thuHoi.error || 'lỗi thu hồi VT cũ/hỏng'));
+      }
       // GĐ3.7: lưu biên bản nghiệm thu & bàn giao (bên giao/nhận, bảo hành, kết luận) + tổng hợp
       if (meta && typeof meta === 'object') {
         const cvs = await tx.rows<ScCongViecRow>(
@@ -767,6 +806,133 @@ export async function scNghiem(
     await tx.audit('nghiem-ul', 'phieu_sua', scId, meId(api), okNgh === false ? 'Nghiệm thu không đạt' : 'Nghiệm thu đạt');
     return { ok: true };
   });
+}
+
+/* ---------------- GĐ4: Mẫu 2 / 7 / 8 (In ấn hồ sơ SC — QC206) ----------------
+ * Chỉ đọc dữ liệu; phân quyền do dispatch RPC (sc.xem) đảm nhiệm.
+ * UI tab "Bàn giao & Bảo hành" (Mẫu 7) và "Bảng kê thay thế" (Mẫu 8) ở G7 sẽ consume. */
+
+/** Mẫu 2 — Bản kiểm tu sửa chữa: tình trạng hư hỏng + hạng mục (trách nhiệm lái xe). */
+export async function scMau2(
+  api: ScApi,
+  scId: string
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  scId = String(scId || '');
+  const sc = await getSC(api.db, scId);
+  if (!sc) return { ok: false, error: 'Không tìm thấy phiếu sửa chữa.' };
+  const congViec = await api.db.rows<ScCongViecRow>("SELECT * FROM sc_congviec WHERE sc_id=$1 AND deleted_at='' ORDER BY stt", scId);
+  const vatTu = await api.db.rows<ScVattuRow>("SELECT * FROM sc_vattu WHERE sc_id=$1 AND deleted_at='' ORDER BY stt", scId);
+  return { ok: true, data: { sc, cong_viec: congViec, vat_tu: vatTu } };
+}
+
+/** Mẫu 7 — Biên bản nghiệm thu & bàn giao phương tiện + bảo hành (2 bên). */
+export async function scMau7(
+  api: ScApi,
+  scId: string
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  scId = String(scId || '');
+  const sc = await getSC(api.db, scId);
+  if (!sc) return { ok: false, error: 'Không tìm thấy gì.' };
+  const bienBan = await api.db.row<Record<string, unknown>>(
+    'SELECT * FROM bien_ban_nghiem WHERE sc_id=$1 ORDER BY id DESC LIMIT 1', scId
+  );
+  const vatTu = await api.db.rows<ScVattuRow>("SELECT * FROM sc_vattu WHERE sc_id=$1 AND deleted_at='' ORDER BY stt", scId);
+  return { ok: true, data: { sc, bien_ban: bienBan || null, vat_tu: vatTu } };
+}
+
+/** Mẫu 8 — Bảng kê chi tiết nội dung thay thế: VT thay thế + VT cũ đã thu hồi (P2.2b). */
+export async function scMau8(
+  api: ScApi,
+  scId: string
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  scId = String(scId || '');
+  const sc = await getSC(api.db, scId);
+  if (!sc) return { ok: false, error: 'Không tìm thấy phiếu sửa chữa.' };
+  const thayThe = await api.db.rows<ScVattuRow>(
+    "SELECT * FROM sc_vattu WHERE sc_id=$1 AND loai_xu_ly='thay_the' AND deleted_at='' ORDER BY stt", scId
+  );
+  // VT cũ đã thu hồi: phieu_nhap_thanhly của phiếu nhập loai_nhap='cu_hong' có ref_sc=scId
+  const cuHong = await api.db.rows<Record<string, unknown>>(
+    `SELECT t.vattu_id, t.ten, t.donvi, t.so_luong, t.ly_do, t.gia_thanh_ly, p.id AS phieu_id, p.ngay
+     FROM phieu_nhap_thanhly t
+     JOIN phieu_nh_ct c ON c.ph_id=t.ph_id AND c.ref_sc=$1 AND c.deleted_at=''
+     JOIN phieu_nhap p ON p.id=t.ph_id AND p.loai_nhap='cu_hong' AND p.deleted_at=''
+     WHERE t.deleted_at=''
+     ORDER BY t.id`,
+    scId
+  );
+  return { ok: true, data: { sc, thay_the: thayThe, cu_hong: cuHong } };
+}
+
+/** Danh sách 8 bước luồng sửa chữa (phục vụ Visual Status Pipeline UI). */
+export const SC_STEPS: string[] = [
+  'Đề xuất', 'Duyệt', 'Kiểm tra', 'Lập SC', 'Sửa chữa', 'Nghiệm thu', 'Thu hồi VT cũ', 'Quyết toán',
+];
+
+/** GĐ5 — Tiến trình 8 bước của 1 SC (done flags) cho pipeline trực quan. */
+export async function scTienTrinh(
+  api: ScApi,
+  scId: string
+): Promise<{ ok: boolean; steps?: Array<Record<string, unknown>>; error?: string }> {
+  scId = String(scId || '');
+  const sc = await getSC(api.db, scId);
+  if (!sc) return { ok: false, error: 'Không tìm thấy phiếu sửa chữa.' };
+  const st = sc.trang_thai;
+  const deXuat = !!(sc as unknown as { de_xuat_id?: string }).de_xuat_id;
+  const daDuyet = st !== 'de_xuat' && st !== 'tu_choi';
+  const daLap = true;
+  const dangSua = ['dang_sua', 'cho_nghiem', 'da_hoan'].indexOf(st) >= 0;
+  const bienBan = await api.db.row<{ id: string }>('SELECT id FROM bien_ban_nghiem WHERE sc_id=$1 LIMIT 1', scId);
+  const daNghiem = st === 'da_hoan' && !!bienBan;
+  const nCv = Number((await api.db.row<{ c: number }>('SELECT COUNT(*) c FROM sc_congviec WHERE sc_id=$1 AND deleted_at=\'\'', scId))?.c) || 0;
+  const coThayThe = Number((await api.db.row<{ c: number }>("SELECT COUNT(*) c FROM sc_vattu WHERE sc_id=$1 AND loai_xu_ly='thay_the' AND deleted_at=''", scId))?.c) || 0 > 0;
+  const daThuHoi = coThayThe
+    ? Number((await api.db.row<{ c: number }>(
+        "SELECT COUNT(*) c FROM phieu_nh_ct c JOIN phieu_nhap p ON p.id=c.ph_id AND p.loai_nhap='cu_hong' AND p.deleted_at='' WHERE c.ref_sc=$1 AND c.deleted_at=''",
+        scId
+      ))?.c) || 0 > 0
+    : true;
+  const daQuyet = Number((await api.db.row<{ c: number }>("SELECT COUNT(*) c FROM lich_sua WHERE sc_id=$1 AND deleted_at=''", scId))?.c) || 0 > 0;
+  const steps = [
+    { step: 1, name: SC_STEPS[0], done: deXuat, note: deXuat ? 'Đã có đề xuất' : 'Chưa đề xuất' },
+    { step: 2, name: SC_STEPS[1], done: daDuyet, note: daDuyet ? 'Đã duyệt' : 'Chờ duyệt' },
+    { step: 3, name: SC_STEPS[2], done: nCv > 0, note: nCv > 0 ? 'Đã lập bản kiểm tu' : 'Chưa kiểm tu' },
+    { step: 4, name: SC_STEPS[3], done: daLap, note: 'Đã lập phiếu' },
+    { step: 5, name: SC_STEPS[4], done: dangSua, note: dangSua ? 'Đang/đã sửa' : 'Chưa sửa' },
+    { step: 6, name: SC_STEPS[5], done: daNghiem, note: daNghiem ? 'Đã nghiệm thu' : 'Chưa nghiệm thu' },
+    { step: 7, name: SC_STEPS[6], done: daThuHoi, note: coThayThe ? (daThuHoi ? 'Đã thu hồi VT cũ' : 'CHƯA thu hồi VT cũ') : 'Không có VT thay thế' },
+    { step: 8, name: SC_STEPS[7], done: daQuyet, note: daQuyet ? 'Đã quyết toán' : 'Chưa quyết toán' },
+  ];
+  return { ok: true, steps };
+}
+
+/** GĐ5 — Dashboard tổng hợp KPI sửa chữa (phục vụ trang tổng quan). */
+export async function scDashboard(
+  api: ScApi
+): Promise<{ ok: boolean; data?: Record<string, unknown> }> {
+  const db = api.db;
+  const tong = await db.row<{ c: number }>("SELECT COUNT(*) c FROM phieu_sua WHERE deleted_at=''");
+  const byStatus = await db.rows<{ trang_thai: string; c: number }>(
+    "SELECT trang_thai, COUNT(*) c FROM phieu_sua WHERE deleted_at='' GROUP BY trang_thai"
+  );
+  const chuaHd = await db.row<{ c: number }>(
+    `SELECT COUNT(*) c FROM cong_no cn WHERE cn.deleted_at='' AND cn.loai='phai_tra' AND cn.ref_type='phieu_nhap' AND cn.ref_id<>'' AND cn.con_no>0
+     AND NOT EXISTS (SELECT 1 FROM vat_invoice v WHERE v.ref_id=cn.ref_id AND v.deleted_at='')`
+  );
+  const chuaThuHoi = await db.row<{ c: number }>(
+    `SELECT COUNT(*) c FROM phieu_sua s WHERE s.deleted_at='' AND s.trang_thai IN ('dang_sua','cho_nghiem','da_hoan')
+     AND EXISTS (SELECT 1 FROM sc_vattu v WHERE v.sc_id=s.id AND v.loai_xu_ly='thay_the' AND v.deleted_at='')
+     AND NOT EXISTS (SELECT 1 FROM phieu_nh_ct c JOIN phieu_nhap p ON p.id=c.ph_id AND p.loai_nhap='cu_hong' AND p.deleted_at='' WHERE c.ref_sc=s.id AND c.deleted_at='')`
+  );
+  return {
+    ok: true,
+    data: {
+      tong: Number(tong?.c) || 0,
+      by_status: byStatus,
+      chua_co_hoadon: Number(chuaHd?.c) || 0,
+      chua_thu_hoi: Number(chuaThuHoi?.c) || 0,
+    },
+  };
 }
 
 /* ---------------- GĐ3.7.5: Bản kiểm tu (tách khỏi SC) ---------------- */
@@ -1038,6 +1204,74 @@ export async function congViecDel(api: ScApi, id: number): Promise<{ ok: boolean
   return { ok: true };
 }
 
+/* ===================== v4.3 P2 — Phương án sửa chữa (Xưởng) ===================== */
+export interface ScProposalArg {
+  sc_id: string;
+  ten: string;
+  mo_ta?: string;
+  chi_phi_uoc_tinh?: number;
+}
+/** Lưu phương án sửa chữa cho 1 phiếu sửa (sc_phuong_an). Cần quyền sc.sua. */
+export async function scProposalSave(
+  api: ScApi,
+  arg: ScProposalArg
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  await checkLock(api, 'sc', 'sua');
+  const scId = String(arg.sc_id || '').trim();
+  if (!scId) return { ok: false, error: 'Thiếu sc_id.' };
+  const ten = String(arg.ten || '').trim();
+  if (!ten) return { ok: false, error: 'Thiếu tên phương án.' };
+  const sc = await api.db.row<{ id: string }>("SELECT id FROM phieu_sua WHERE id=$1 AND deleted_at=''", scId);
+  if (!sc) return { ok: false, error: 'Không tìm thấy phiếu sửa ' + scId + '.' };
+  const chiPhi = Number(arg.chi_phi_uoc_tinh) || 0;
+  const id = await api.db.nextId('PA');
+  await api.db.run(
+    'INSERT INTO sc_phuong_an(id, tenant_id, sc_id, ten, mo_ta, chi_phi_uoc_tinh, nguoi_tao, deleted_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+    id, 'c1', scId, ten, arg.mo_ta || '', chiPhi, meId(api), ''
+  );
+  await api.db.audit('sc/phuong_an', 'sc_phuong_an', id, meId(api), 'Lưu phương án ' + ten);
+  return { ok: true, id };
+}
+
+/** Danh sách phương án của 1 phiếu sửa. Cần quyền sc.xem. */
+export async function scProposalList(
+  api: ScApi,
+  arg: { sc_id: string }
+): Promise<Array<Record<string, unknown>>> {
+  await checkLock(api, 'sc', 'xem');
+  const scId = String(arg.sc_id || '').trim();
+  if (!scId) return [];
+  return api.db.rows<Record<string, unknown>>(
+    'SELECT id, sc_id, ten, mo_ta, chi_phi_uoc_tinh, nguoi_tao FROM sc_phuong_an WHERE sc_id=$1 AND deleted_at=$2 ORDER BY id',
+    scId, ''
+  );
+}
+
+/**
+ * Cập nhật ảnh hiện trường của phiếu sửa (phieu_sua.hinh_anh TEXT[]).
+ * Cần quyền sc.sua; validate danh sách URL (tối đa 20 ảnh, mỗi ảnh ≤ 500 ký tự).
+ */
+export async function scAnhSave(
+  api: ScApi,
+  arg: { sc_id: string; urls: string[] }
+): Promise<{ ok: boolean; error?: string; urls?: string[] }> {
+  await checkLock(api, 'sc', 'sua');
+  const scId = String(arg.sc_id || '').trim();
+  if (!scId) return { ok: false, error: 'Thiếu sc_id.' };
+  const urls = Array.isArray(arg.urls)
+    ? arg.urls.map((u) => String(u).trim()).filter(Boolean).slice(0, 20)
+    : [];
+  if (urls.some((u) => u.length > 500)) return { ok: false, error: 'URL ảnh quá dài (tối đa 500 ký tự).' };
+  const sc = await api.db.row<{ id: string }>("SELECT id FROM phieu_sua WHERE id=$1 AND deleted_at=''", scId);
+  if (!sc) return { ok: false, error: 'Không tìm thấy phiếu sửa ' + scId + '.' };
+  await api.db.run(
+    'UPDATE phieu_sua SET hinh_anh=$1 WHERE id=$2 AND deleted_at=$3',
+    urls.length ? urls : null, scId, ''
+  );
+  await api.db.audit('sc', 'phieu_sua', scId, meId(api), 'Cập nhật ảnh hiện trường (' + urls.length + ' ảnh)');
+  return { ok: true, urls };
+}
+
 export default {
   TT_LABEL,
   CV_TT,
@@ -1067,4 +1301,7 @@ export default {
   congViecList,
   congViecSave,
   congViecDel,
+  scProposalSave,
+  scProposalList,
+  scAnhSave,
 };

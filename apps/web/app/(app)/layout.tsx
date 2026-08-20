@@ -41,15 +41,25 @@ async function getSessionInfo(
     const perms = await core.perm.permsOfRole(db, role);
 
     const nav: NavItem[] = [{ href: '/dashboard', label: 'Bảng điều khiển' }];
-    if (perms['sc']) nav.push({ href: '/sc', label: 'Phiếu sửa chữa' });
-    if (perms['de_xuat']) nav.push({ href: '/de-xuat', label: 'Đề xuất sửa chữa' });
-    if (perms['kho']) nav.push({ href: '/kho', label: 'Kho' });
-    if (perms['kho']) nav.push({ href: '/thanhly', label: 'Thanh lý' });
-    if (perms['mua']) nav.push({ href: '/baogia', label: 'Báo giá NCC' });
-    if (perms['chat']) nav.push({ href: '/chat', label: 'Chat' });
-    if (perms['asset']) nav.push({ href: '/asset', label: 'Tài sản' });
+    // (P1.3) Role admin luôn thấy toàn bộ menu (full access — dùng cho demo + quản trị).
+    const isAdmin = role === 'admin';
+    const can = (m: string) => isAdmin || (perms && (perms[m]?.length ?? 0) > 0);
+    if (can('sc')) nav.push({ href: '/sc', label: 'Phiếu sửa chữa' });
+    if (can('kho')) nav.push({ href: '/kho', label: 'Kho' });
+    if (can('kho')) nav.push({ href: '/thanhly', label: 'Thanh lý' });
+    if (can('mua')) nav.push({ href: '/baogia', label: 'Báo giá NCC' });
+    if (can('xe')) nav.push({ href: '/xe', label: 'Hồ sơ xe' });
+    if (can('xe')) nav.push({ href: '/khach-hang', label: 'Khách hàng' });
+    if (can('xe')) nav.push({ href: '/nhac-han', label: 'Nhắc hạn' });
+    if (can('ke_toan')) nav.push({ href: '/ke-toan/dashboard', label: 'Kế toán' });
     if (role === 'admin') nav.push({ href: '/perm', label: 'Phân quyền' });
-    if (role === 'admin') nav.push({ href: '/preview', label: 'Preview' });
+    if (role === 'admin') nav.push({ href: '/users', label: 'Người dùng' });
+    if (role === 'admin') nav.push({ href: '/audit', label: 'Nhật ký' });
+    // (v5.0) Menu Giám đốc — chỉ role giamdoc / admin
+    if (role === 'giamdoc' || role === 'admin') nav.push({ href: '/giamdoc', label: 'Giám đốc' });
+    // (v5.0) Menu Hồ sơ — role ketoan / giamdoc / xuong / kho / admin
+    if (['ketoan', 'giamdoc', 'xuong', 'kho', 'admin'].includes(role))
+      nav.push({ href: '/ho-so', label: 'Hồ sơ' });
 
     return {
       navItems: nav,
