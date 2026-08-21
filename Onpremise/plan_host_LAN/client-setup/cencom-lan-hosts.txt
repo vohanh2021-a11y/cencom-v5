@@ -1,0 +1,7 @@
+# === Hosts file entry cho cencom.lan ===
+# Copy dòng dưới đây và thêm vào file hosts:
+#   Windows: C:\Windows\System32\drivers\etc\hosts
+#   Linux/Mac: /etc/hosts
+#
+# Thêm dòng này vào cuối file:
+192.168.0.72    cencom.lan

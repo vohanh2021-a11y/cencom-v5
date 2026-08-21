@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+*.log
+
+# test artifacts (generated)
+/videos/
+/tests/ux/uat-tour.mp4
+/tests/ux/console-errors.txt
+/tests/ux/results.json

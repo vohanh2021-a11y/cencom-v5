@@ -1,0 +1,20 @@
+# .dockerignore — loại bỏ những thứ không cần thiết khỏi build context
+# (tránh copy node_modules/.next của host gây lỗi, và tránh leak .env)
+
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+backups
+*.log
+test-results
+playwright-report
+videos
+cache
+.github
+workflows
+docs
+tests

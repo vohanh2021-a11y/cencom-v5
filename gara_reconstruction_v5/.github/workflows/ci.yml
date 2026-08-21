@@ -1,0 +1,146 @@
+# ci.yml — GitHub Actions CI/CD Pipeline
+# Trigger: push/PR vào main
+# Services: Postgres 16 (cho test:ci + e2e)
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Hủy các workflow cũ khi có push mới cùng branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Job 1: Type Check ──────────────────────────────────────────────
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+  # ─── Job 2: Unit/Conformance Tests ──────────────────────────────────
+  test:
+    name: Unit & Conformance Tests
+    runs-on: ubuntu-latest
+    needs: typecheck
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cencom
+        ports:
+          - 5432:5432
+        # Health check: chờ Postgres sẵn sàng trước khi chạy test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+      SESSION_SECRET: ci-test-session-secret-not-for-production-32chars!!
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Tạo .env.local vì test-ci.mjs BẮT BUỘC đọc file này
+      - name: Create .env.local
+        run: |
+          cat > .env.local <<'EOF'
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/cencom
+          SESSION_SECRET=ci-test-session-secret-not-for-production-32chars!!
+          EOF
+
+      # Chạy migrate nếu cần (đảm bảo schema mới nhất)
+      - name: Run database migration
+        run: npm run migrate
+        continue-on-error: false
+
+      - name: Run conformance tests
+        run: npm run test:ci
+        timeout-minutes: 10
+
+  # ─── Job 3: E2E Tests (Playwright) ─────────────────────────────────
+  e2e:
+    name: E2E Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: typecheck
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cencom
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+      SESSION_SECRET: ci-test-session-secret-not-for-production-32chars!!
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Create .env.local
+        run: |
+          cat > .env.local <<'EOF'
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/cencom
+          SESSION_SECRET=ci-test-session-secret-not-for-production-32chars!!
+          EOF
+
+      - name: Run database migration
+        run: npm run migrate
+
+      - name: Run E2E tests
+        run: npm run e2e
+        timeout-minutes: 15

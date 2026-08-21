@@ -1,0 +1,128 @@
+{
+  "project": "cencomOS_gara_4.0_supa",
+  "plan": "host_LAN_server",
+  "version": "1.0.0",
+  "created": "2026-08-17",
+  "author": "Gatekeeper",
+  "description": "Triển khai CencomOS-Gara 4.0 trên máy Windows để máy khác trong LAN truy cập qua HTTPS",
+  "server": {
+    "lan_ip": "192.168.0.72",
+    "hostname": "HanhVo",
+    "app_domain": "cencom.lan",
+    "subnet": "255.255.252.0",
+    "gateway": "192.168.1.1"
+  },
+  "docker_stack": {
+    "compose_file": "Onpremise/docker-compose.yml",
+    "containers": [
+      { "name": "supabase-db", "role": "PostgreSQL 15", "port": 54322, "health": "pg_isready" },
+      { "name": "supabase-realtime", "role": "WebSocket Realtime", "port": 54324, "health": null },
+      { "name": "supabase-storage", "role": "Storage API", "port": 54325, "health": null },
+      { "name": "cencom-web", "role": "Next.js Standalone", "port": 3000, "health": "/api/health" },
+      { "name": "cencom-nginx", "role": "Reverse Proxy + SSL", "port": "80,443", "health": "/healthz" }
+    ]
+  },
+  "api_contracts": {
+    "base_url": "https://192.168.0.72",
+    "endpoints": [
+      { "path": "/api/health", "method": "GET", "auth": "public", "desc": "Health check" },
+      { "path": "/api/auth", "method": "POST", "auth": "public", "desc": "Login (username, password) + rate limit" },
+      { "path": "/api/auth", "method": "DELETE", "auth": "cookie", "desc": "Logout" },
+      { "path": "/api/auth/change-password", "method": "POST", "auth": "session", "desc": "Change password" },
+      { "path": "/api/rpc", "method": "POST", "auth": "session+cookie+csrf+rbac", "desc": "RPC dispatcher {fn, args[]}" },
+      { "path": "/realtime", "method": "WS", "auth": "jwt", "desc": "Supabase Realtime WebSocket" },
+      { "path": "/storage", "method": "HTTP", "auth": "jwt", "desc": "Supabase Storage API" },
+      { "path": "/api/export/[...]", "method": "GET", "auth": "session", "desc": "Export (HTML A4)" }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "T1",
+      "name": "regenerate_ssl_cert",
+      "script": "01_fix_cert.sh",
+      "description": "Regenerate self-signed SSL cert with LAN IP in SAN",
+      "order": 1,
+      "run_in": "wsl2",
+      "timeout_s": 30,
+      "depends_on": [],
+      "verify": "openssl x509 -in Onpremise/nginx/certs/server.crt -text -noout | grep '192.168.0.72'"
+    },
+    {
+      "id": "T2",
+      "name": "fix_env_file_order",
+      "script": "02_fix_env_order.ps1",
+      "description": "Swap env_file order: .env.onpremise first, .env.onpremise.local last",
+      "order": 2,
+      "run_in": "powershell_admin",
+      "timeout_s": 15,
+      "depends_on": [],
+      "verify": "docker compose config | grep SESSION_SECRET"
+    },
+    {
+      "id": "T3",
+      "name": "restart_docker_stack",
+      "script": "03_restart_stack.ps1",
+      "description": "Restart all containers to reload cert and env",
+      "order": 3,
+      "run_in": "powershell_admin",
+      "timeout_s": 90,
+      "depends_on": ["T1", "T2"],
+      "verify": "docker ps | grep -E 'healthy|Up'"
+    },
+    {
+      "id": "T4",
+      "name": "add_hosts_entry",
+      "script": "04_hosts_entry.ps1",
+      "description": "Add 192.168.0.72 cencom.lan to Windows hosts file",
+      "order": 4,
+      "run_in": "powershell_admin",
+      "timeout_s": 10,
+      "depends_on": [],
+      "verify": "ping cencom.lan"
+    },
+    {
+      "id": "T5",
+      "name": "verify_end_to_end",
+      "script": "05_verify.sh",
+      "description": "End-to-end test: health, login, RPC, WebSocket",
+      "order": 5,
+      "run_in": "wsl2",
+      "timeout_s": 60,
+      "depends_on": ["T3", "T4"],
+      "verify": "PASS=5 FAIL=0"
+    },
+    {
+      "id": "T6",
+      "name": "windows_firewall_rules",
+      "script": "06_firewall.ps1",
+      "description": "Open inbound firewall rules for LAN access (optional)",
+      "order": 6,
+      "run_in": "powershell_admin",
+      "timeout_s": 15,
+      "depends_on": ["T5"],
+      "verify": "Get-NetFirewallRule -DisplayName 'CencomOS*'",
+      "optional": true
+    }
+  ],
+  "client_setup": {
+    "directory": "client-setup/",
+    "instructions": "README.md",
+    "files": {
+      "install_cert_win.bat": "Windows cert installer (Admin required)",
+      "install_cert_linux.sh": "Linux cert installer (sudo required)",
+      "install_cert_mac.sh": "Mac cert installer (sudo required)",
+      "cencom-lan-hosts.txt": "Hosts file entry template",
+      "server.crt": "SSL public cert (copy from Onpremise/nginx/certs/)"
+    }
+  },
+  "credentials": {
+    "admin": { "username": "admin-1", "password": "cencom@123", "must_change": false },
+    "default": { "password": "cencom@123", "must_change": true, "note": "Other users: giamdoc-1, ketoan-1, tho-1..5, xuong-1" }
+  },
+  "known_issues": [
+    { "id": "V-01", "desc": "SSL cert missing 192.168.0.72 in SAN", "severity": "medium", "task_fix": "T1" },
+    { "id": "V-02", "desc": "env_file order wrong: .env.onpremise overrides .env.onpremise.local", "severity": "high", "task_fix": "T2" },
+    { "id": "V-03", "desc": "cencom.lan not in hosts file on server", "severity": "low", "task_fix": "T4" },
+    { "id": "V-04", "desc": "client cert not trusted", "severity": "medium", "task_fix": "client-setup/install_cert_win.bat" }
+  ]
+}

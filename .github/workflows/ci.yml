@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (gara_reconstruction_v5)
+        run: npm run build
+        working-directory: gara_reconstruction_v5
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: build
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cencom
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health pg_isready -U postgres -d cencom
+          --name postgres-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Run migrations and seed (before Jest)
+        run: npx tsx db/migrate.ts && npx tsx db/seed.ts
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+
+      - name: Run conformance tests (Jest with Postgres service)
+        run: |
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/cencom npx jest \
+            --config tests/conformance/jest.config.js \
+            --runInBand \
+            --detectOpenHandles
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+
+      - name: Upload test report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            tests/conformance/coverage/conformance
+            tests/conformance/test-results
+          retention-days: 14

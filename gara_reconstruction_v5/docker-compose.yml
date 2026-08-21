@@ -1,0 +1,72 @@
+# docker-compose.yml — CencomOS Gara v5 (on-premise / single-host)
+# Service: db (postgres:16-alpine) + web (Next.js standalone) + nginx (reverse proxy HTTPS)
+# ⚠️ KHÔNG thay đổi business logic app. Chỉ infra.
+# Build context của web = thư mục này (gara_reconstruction_v5).
+
+services:
+  # ---------- DATABASE ----------
+  db:
+    image: postgres:16-alpine
+    container_name: cencom_v5_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: cencom
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cencom"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------- WEB APP (Next.js standalone) ----------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cencom_v5_web
+    restart: unless-stopped
+    # expose cho nginx nội bộ; publish 3000 để debug/trực tiếp nếu cần
+    expose:
+      - "3000"
+    ports:
+      - "3000:3000"
+    environment:
+      # Trỏ về service db (Docker network nội bộ)
+      DATABASE_URL: postgres://postgres:${DB_PASSWORD:-postgres}@db:5432/cencom
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-strong-secret-change-me}
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---------- REVERSE PROXY (HTTPS) ----------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: cencom_v5_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - web
+
+volumes:
+  pg_data:

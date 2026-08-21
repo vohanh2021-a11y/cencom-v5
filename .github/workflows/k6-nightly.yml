@@ -1,0 +1,72 @@
+name: k6 Nightly Load Test
+
+on:
+  schedule:
+    # Chạy lúc 02:00 UTC hàng ngày (09:00 ICT)
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Cho phép chạy thủ công
+
+jobs:
+  k6-load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      BASE_URL: https://cencom-os.example.com  # Thay bằng URL production/staging
+      # SESSION_COOKIE sẽ được inject từ GitHub Secrets
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Install web app dependencies
+        working-directory: ./apps/web
+        run: npm ci
+
+      - name: Build web app
+        working-directory: ./apps/web
+        run: npm run build
+
+      - name: Start web app (background)
+        working-directory: ./apps/web
+        run: |
+          npm run start &
+          sleep 10  # Wait for server to be ready
+          curl -f http://localhost:3000/api/health || exit 1
+
+      - name: Run k6 load test
+        env:
+          SESSION_COOKIE: ${{ secrets.SESSION_COOKIE }}
+          BASE_URL: http://localhost:3000
+        run: |
+          k6 run --out json=k6-results.json tests/load/k6_ledgerpost.js
+
+      - name: Upload k6 results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-results
+          path: k6-results.json
+          retention-days: 30
+
+      - name: Check k6 thresholds
+        if: always()
+        run: |
+          # Parse results and fail if thresholds exceeded
+          cat k6-results.json | jq -r 'select(.type=="Point" and .metric=="http_req_duration") | .data.value' | awk '{sum+=$1} END {print "Avg duration:", sum/NR "ms"}'
+          cat k6-results.json | jq -r 'select(.type=="Point" and .metric=="http_req_failed") | .data.value' | awk '{sum+=$1} END {print "Failed rate:", sum/NR*100 "%"}'

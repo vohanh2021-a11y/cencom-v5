@@ -1,0 +1,45 @@
+{
+  "name": "gara_reconstruction_v5",
+  "version": "5.0.0",
+  "private": true,
+  "description": "CencomOS Gara v5.0 GREENFIELD — Next.js + PostgreSQL thuần (không Supabase), auth tự viết, role-centric.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "tsc": "tsc --noEmit",
+    "migrate": "tsx db/migrate.ts",
+    "seed": "tsx db/seed.ts",
+    "cleanup": "tsx scripts/cleanup_test.ts",
+    "test": "jest --runInBand --detectOpenHandles",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:ci": "node scripts/test-ci.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "e2e": "node scripts/run-e2e.mjs"
+  },
+  "dependencies": {
+    "@types/node": "^20",
+    "@types/pg": "^8",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.20",
+    "next": "^14.2.35",
+    "pg": "8",
+    "postcss": "^8.4.47",
+    "react": "18",
+    "react-dom": "18",
+    "tailwindcss": "3",
+    "typescript": "5",
+    "zod": "3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/jest": "^30.0.0",
+    "@types/supertest": "^7.2.1",
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.12",
+    "tsx": "^4.19.1"
+  }
+}
