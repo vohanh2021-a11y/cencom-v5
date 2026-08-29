@@ -173,3 +173,55 @@ CREATE INDEX idx_act_sc ON activity_log(sc_id);
 
 -- ============ CONFIG ============
 CREATE TABLE config ( key TEXT PRIMARY KEY, value TEXT );
+
+-- ============ KẾ HOẠCH SC (mẫu 01) — bước 1 hồ sơ 8 bước ============
+CREATE TABLE ke_hoach_sc (
+  id         VARCHAR(12) PRIMARY KEY,
+  sc_id      VARCHAR(12) NOT NULL REFERENCES sc(id),
+  mo_ta      TEXT,
+  nguoi_lap  VARCHAR(12) REFERENCES users(id),
+  ngay       TEXT,
+  is_test    SMALLINT DEFAULT 0,
+  deleted_at TEXT DEFAULT ''
+);
+CREATE INDEX idx_kh_sc ON ke_hoach_sc(sc_id);
+
+-- ============ PHIẾU KIỂM TU — bước 2 hồ sơ 8 bước ============
+CREATE TABLE phieu_kiem_tu (
+  id         VARCHAR(12) PRIMARY KEY,
+  sc_id      VARCHAR(12) NOT NULL REFERENCES sc(id),
+  mo_ta      TEXT,
+  nguoi_kiem VARCHAR(12) REFERENCES users(id),
+  ngay       TEXT,
+  is_test    SMALLINT DEFAULT 0,
+  deleted_at TEXT DEFAULT ''
+);
+CREATE INDEX idx_kt_sc ON phieu_kiem_tu(sc_id);
+
+-- ============ BIÊN BẢN NGHIỆM THU — bước 7 hồ sơ 8 bước ============
+CREATE TABLE bien_ban_nghiem (
+  id             VARCHAR(12) PRIMARY KEY,
+  sc_id          VARCHAR(12) NOT NULL REFERENCES sc(id),
+  ngay_nghiem    TEXT,
+  nguoi_nghiem   VARCHAR(12) REFERENCES users(id),
+  tong_vat_tu    NUMERIC(14,2) DEFAULT 0,
+  tong_nhan_cong NUMERIC(14,2) DEFAULT 0,
+  is_test        SMALLINT DEFAULT 0,
+  deleted_at     TEXT DEFAULT ''
+);
+CREATE INDEX idx_nn_sc ON bien_ban_nghiem(sc_id);
+
+-- ============ BÁO GIÁ NCC (v4) — bước 3 hồ sơ 8 bước ============
+CREATE TABLE bao_gia_ncc (
+  id           VARCHAR(12) PRIMARY KEY,
+  sc_id        VARCHAR(12) REFERENCES sc(id),
+  ncc          TEXT,
+  ngay         TEXT,
+  tong         NUMERIC(14,2) DEFAULT 0,
+  ocr_xac_nhan SMALLINT DEFAULT 0,
+  anh_bao_gia  TEXT DEFAULT '',
+  nguoi_tao    VARCHAR(12) REFERENCES users(id),
+  is_test      SMALLINT DEFAULT 0,
+  deleted_at   TEXT DEFAULT ''
+);
+CREATE INDEX idx_bgn_sc ON bao_gia_ncc(sc_id);

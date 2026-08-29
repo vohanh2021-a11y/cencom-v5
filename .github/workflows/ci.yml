@@ -1,48 +1,48 @@
-name: CI
+name: CI (CencomOS Gara v5.0)
 
 on:
   push:
-    branches: [main]
+    branches: [main, master, develop]
   pull_request:
-    branches: [main]
+    branches: [main, master, develop]
+
+# Tránh chạy trùng lặp: huỷ run cũ khi có push mới trên cùng 1 ref
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  gate:
+    name: Typecheck · Lint · Conformance · Build
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build (gara_reconstruction_v5)
-        run: npm run build
-        working-directory: gara_reconstruction_v5
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    needs: build
+    # PostgreSQL service container — truy cập từ job qua localhost:5432
+    # (GitHub Actions tự chờ healthcheck trước khi chạy các step).
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16
         env:
-          POSTGRES_DB: cencom
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cencom
         ports:
           - 5432:5432
         options: >-
-          --health pg_isready -U postgres -d cencom
-          --name postgres-service
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+      SESSION_SECRET: ci-only-secret-change-in-prod-0123456789abcdef
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_ENV: test
+
+    defaults:
+      run:
+        working-directory: gara_reconstruction_v5
 
     steps:
       - name: Checkout repository
@@ -51,34 +51,44 @@ jobs:
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
+          cache-dependency-path: gara_reconstruction_v5/package-lock.json
 
-      - name: Install dependencies
+      # Conformance runner (scripts/test-conformance.mjs) BẮT BUỘC có file
+      # .env.local tồn tại và chứa DATABASE_URL, nếu không nó ném lỗi.
+      - name: Create .env.local for conformance tests
+        run: |
+          cat > .env.local <<'ENVEOF'
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/cencom
+          SESSION_SECRET=ci-only-secret-change-in-prod-0123456789abcdef
+          ENVEOF
+          echo ".env.local created for conformance runner"
+
+      # Belt-and-suspenders: đảm bảo Postgres thực sự nhận kết nối trước khi chạy test.
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/localhost/5432) 2>/dev/null; then
+              echo "PostgreSQL port 5432 is open"; break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Install dependencies (npm ci)
         run: npm ci
 
       - name: Typecheck (tsc --noEmit)
         run: npx tsc --noEmit
 
-      - name: Run migrations and seed (before Jest)
-        run: npx tsx db/migrate.ts && npx tsx db/seed.ts
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+      - name: Lint
+        run: npm run lint
 
-      - name: Run conformance tests (Jest with Postgres service)
-        run: |
-          DATABASE_URL=postgres://postgres:postgres@localhost:5432/cencom npx jest \
-            --config tests/conformance/jest.config.js \
-            --runInBand \
-            --detectOpenHandles
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+      # Chạy mỗi file test trong process riêng với 1 server next dev riêng
+      # (globalSetup reset schema + migrate + seed mỗi file). Cần Postgres + .env.local.
+      - name: Conformance tests (per-file isolated runner)
+        run: npm run test:conformance
 
-      - name: Upload test report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-report
-          path: |
-            tests/conformance/coverage/conformance
-            tests/conformance/test-results
-          retention-days: 14
+      - name: Build (Next.js standalone)
+        run: npm run build

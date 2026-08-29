@@ -1,6 +1,10 @@
 import type { Api } from '../types';
 import { row, run, nextId } from '../db';
 import { logActivity } from './activity';
+import { checkHoSo } from './ho_so';
+import { createScopedLogger } from '../observability';
+
+const log = createScopedLogger('sc');
 
 // Enum trạng thái phiếu sửa chữa (db/schema.sql CHECK)
 const TT = ['de_xuat', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi'];
@@ -98,7 +102,9 @@ export async function scCreate(api: Api, p: { xe_id: string; ngay: string }): Pr
       sc_id: id,
       mo_ta: 'Tạo phiếu sửa chữa',
     });
-  } catch (_) {}
+  } catch (e: any) {
+    log.logError('scCreate: logActivity failed', e, { id, sc_id: id });
+  }
   return { id };
 }
 
@@ -135,7 +141,9 @@ export async function scAddCongViec(
       sc_id: scId,
       mo_ta: 'Thêm công việc',
     });
-  } catch (_) {}
+  } catch (e: any) {
+    log.logError('scAddCongViec: logActivity failed', e, { id: scId, sc_id: scId });
+  }
   return { id };
 }
 
@@ -165,7 +173,9 @@ export async function scAddVatTu(
       sc_id: scId,
       mo_ta: 'Thêm vật tư',
     });
-  } catch (_) {}
+  } catch (e: any) {
+    log.logError('scAddVatTu: logActivity failed', e, { id: scId, sc_id: scId });
+  }
   return { id };
 }
 
@@ -189,7 +199,9 @@ export async function scBatDauSua(api: Api, p: { sc_id: string }): Promise<{ ok:
       sc_id: scId,
       mo_ta: 'Bắt đầu sửa',
     });
-  } catch (_) {}
+  } catch (e: any) {
+    log.logError('scBatDauSua: logActivity failed', e, { sc_id: scId });
+  }
   return { ok: true };
 }
 
@@ -213,7 +225,9 @@ export async function scHoanThanh(api: Api, p: { sc_id: string }): Promise<{ ok:
       sc_id: scId,
       mo_ta: 'Hoàn thành sửa chữa',
     });
-  } catch (_) {}
+  } catch (e: any) {
+    log.logError('scHoanThanh: logActivity failed', e, { sc_id: scId });
+  }
   return { ok: true };
 }
 
@@ -239,20 +253,35 @@ export async function scTuChoi(api: Api, p: { sc_id: string; ly_do: string }): P
       sc_id: scId,
       mo_ta: 'Từ chối: ' + (p.ly_do ?? ''),
     });
-  } catch (_) {}
+  } catch (e: any) {
+    log.logError('scTuChoi: logActivity failed', e, { sc_id: scId });
+  }
   return { ok: true };
 }
 
 export async function scQuyetToan(api: Api, p: { sc_id: string }): Promise<{ ok: true }> {
   const u = api.auth.current();
   const role = u?.role;
-  if (!(await api.perm.can(api.db, role!, 'sc', 'kehoach'))) throw new Error('403');
+  if (!(await api.perm.can(api.db, role!, 'sc', 'kehoach'))) {
+    log.logWarn('scQuyetToan: permission denied (rbac)', { actor: u?.id, role });
+    throw new Error('403');
+  }
   // v3.6 perm.canQuyetToan(): admin/ketoan (+giamdoc/quanly) — v5 MATRIX đã siết còn ketoan (admin bypass),
   // security.test.ts yêu cầu giamdoc DENY → chỉ cho ketoan/admin.
-  if (role !== 'ketoan' && role !== 'admin') throw new Error('403');
+  if (role !== 'ketoan' && role !== 'admin') {
+    log.logWarn('scQuyetToan: role not allowed', { actor: u?.id, role });
+    throw new Error('403');
+  }
   const scId = requireStr(p?.sc_id, 'sc_id');
   const sc = await getSc(api, scId);
+  // Gate hồ sơ 8 bước: chặn quyết toán khi thiếu bất kỳ bước bắt buộc nào
+  const hs = await checkHoSo(api, scId);
+  if (!hs.ok) {
+    log.logWarn('scQuyetToan: incomplete ho so', { sc_id: scId, miss: hs.miss, actor: u?.id });
+    throw new Error('Không thể quyết toán — thiếu hồ sơ: ' + hs.miss.join(', '));
+  }
   if (sc.trang_thai !== 'da_hoan') {
+    log.logWarn('scQuyetToan: invalid trang_thai', { sc_id: scId, trang_thai: sc.trang_thai, actor: u?.id });
     throw new Error('Chỉ quyết toán khi phiếu đã hoàn thành');
   }
   await run('UPDATE sc SET trang_thai=$1 WHERE id=$2 AND deleted_at=$3', ['da_quyet', scId, '']);
@@ -266,6 +295,9 @@ export async function scQuyetToan(api: Api, p: { sc_id: string }): Promise<{ ok:
       sc_id: scId,
       mo_ta: 'Quyết toán',
     });
-  } catch (_) {}
+  } catch (e: any) {
+    log.logError('scQuyetToan: logActivity failed', e, { sc_id: scId });
+  }
+  log.logInfo('scQuyetToan: success', { sc_id: scId, actor: u?.id });
   return { ok: true };
 }

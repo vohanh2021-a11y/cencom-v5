@@ -5,6 +5,7 @@ import type React from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser, useApi } from '@/lib/hooks/useApi';
 import type { Actor } from '@/lib/types';
+import type { HoSoCheckResult, HoSoStep } from '@/lib/core/ho_so';
 
 interface XeRow {
   id: string;
@@ -90,6 +91,16 @@ const money = (n?: number | string | null) =>
   n == null || n === '' ? '—' : Number(n).toLocaleString('vi-VN') + '₫';
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
+/** Escape HTML entities — chống XSS khi ghép chuỗi HTML từ dữ liệu user/server */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function Spinner() {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20">
@@ -168,6 +179,14 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
   }, [api, id]);
 
   const [errLocal, setErrLocal] = useState<string | null>(null);
+  const [hs, setHs] = useState<HoSoCheckResult | null>(null);
+  const [hsLoading, setHsLoading] = useState(false);
+  const [hsSaving, setHsSaving] = useState(false);
+  const [khText, setKhText] = useState('');
+  const [ktText, setKtText] = useState('');
+  const [nnNgay, setNnNgay] = useState(todayStr());
+  const [nnVt, setNnVt] = useState('0');
+  const [nnNc, setNnNc] = useState('0');
 
   const loadActivity = useCallback(async () => {
     setActLoading(true);
@@ -182,19 +201,99 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
     setActLoading(false);
   }, [api, id]);
 
+  const loadHoSo = useCallback(async () => {
+    setHsLoading(true);
+    const r = await api.call('hoSoCheck', { sc_id: id });
+    if (r.ok) setHs(r.result as HoSoCheckResult);
+    else setHs(null);
+    setHsLoading(false);
+  }, [api, id]);
+
   useEffect(() => {
     if (!open) return;
     setSc(null);
     setActRows([]);
+    setHs(null);
     load();
     loadActivity();
-  }, [open, load, loadActivity]);
+    loadHoSo();
+  }, [open, load, loadActivity, loadHoSo]);
 
   const refreshAll = useCallback(async () => {
     await load();
     await loadActivity();
+    await loadHoSo();
     onDone();
-  }, [load, loadActivity, onDone]);
+  }, [load, loadActivity, loadHoSo, onDone]);
+
+  const exportReport = useCallback(() => {
+    if (!sc || !hs) return;
+    const rows = hs.steps
+      .map(
+        (s) =>
+          `<tr><td style="border:1px solid #ccc;padding:6px">${escapeHtml(String(s.step))}</td><td style="border:1px solid #ccc;padding:6px">${escapeHtml(s.label)}</td><td style="border:1px solid #ccc;padding:6px">${s.ok ? 'Đạt' : 'Thiếu'}</td><td style="border:1px solid #ccc;padding:6px">${escapeHtml(s.note || '')}</td></tr>`
+      )
+      .join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Ho so SC ${escapeHtml(id)}</title><style>@page{size:A4;margin:16mm} body{font-family:Arial,Helvetica,sans-serif;color:#222} h2{text-align:center} table{border-collapse:collapse;width:100%;margin-top:12px} th,td{border:1px solid #ccc;padding:6px;font-size:13px}</style></head><body><h2>HỒ SƠ SỬA CHỮA 8 BƯỚC</h2><p><b>SC:</b> ${escapeHtml(id)} &nbsp; <b>Trạng thái:</b> ${escapeHtml(sc.trang_thai)} &nbsp; <b>Ngày:</b> ${escapeHtml(formatDate(sc.ngay_tao))}</p><p><b>Kết luận:</b> ${hs.ok ? 'Đạt đủ — có thể quyết toán' : 'Thiếu: ' + escapeHtml(hs.miss.join(', '))}</p><table><thead><tr><th style="border:1px solid #ccc;padding:6px">#</th><th style="border:1px solid #ccc;padding:6px">Bước hồ sơ</th><th style="border:1px solid #ccc;padding:6px">Kết quả</th><th style="border:1px solid #ccc;padding:6px">Ghi chú</th></tr></thead><tbody>${rows}</tbody></table><p style="margin-top:16px;font-size:12px;color:#666">In ra PDF qua trình duyệt (Ctrl+P).</p></body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hoso_${id}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [sc, hs, id]);
+
+  const saveHoSo = useCallback(async () => {
+    setHsSaving(true);
+    setActError(null);
+    const r = await api.call('hoSoSave', {
+      sc_id: id,
+      ghi_chu: hs?.ok ? 'Hồ sơ 8 bước đạt đủ' : 'Hồ sơ 8 bước thiếu: ' + (hs?.miss.join(', ') || ''),
+    });
+    if (!r.ok) setActError(r.error || 'Lưu hồ sơ thất bại');
+    setHsSaving(false);
+  }, [api, id, hs]);
+
+  const gotoStep = (s: HoSoStep) => {
+    if (s.link === 'kh') document.getElementById('kh-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else if (s.link === 'kt') document.getElementById('kt-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else if (s.link === 'nn') document.getElementById('nn-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else if (typeof s.link === 'string' && s.link.startsWith('/')) window.open(s.link, '_blank');
+  };
+
+  const saveKh = async () => {
+    setMutating(true);
+    const r = await api.call('keHoachSave', { sc_id: id, mo_ta: khText.trim() });
+    if (r.ok) {
+      setKhText('');
+      await refreshAll();
+    } else setActError(r.error || 'Lưu kế hoạch thất bại');
+    setMutating(false);
+  };
+  const saveKt = async () => {
+    setMutating(true);
+    const r = await api.call('kiemTuSave', { sc_id: id, mo_ta: ktText.trim() });
+    if (r.ok) {
+      setKtText('');
+      await refreshAll();
+    } else setActError(r.error || 'Lưu kiểm tu thất bại');
+    setMutating(false);
+  };
+  const saveNn = async () => {
+    setMutating(true);
+    const r = await api.call('nghiemThuSave', {
+      sc_id: id,
+      ngay_nghiem: nnNgay,
+      tong_vat_tu: Number(nnVt) || 0,
+      tong_nhan_cong: Number(nnNc) || 0,
+    });
+    if (r.ok) await refreshAll();
+    else setActError(r.error || 'Lưu nghiệm thu thất bại');
+    setMutating(false);
+  };
 
   const doCv = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -304,6 +403,170 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
               </div>
             ) : (
               <div className="text-sm text-slate-400">Chưa có chi tiết.</div>
+            )}
+          </section>
+
+          {/* Hồ sơ 8 bước */}
+          <section className="mb-5">
+            <h4 className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold">
+              Hồ sơ 8 bước sửa chữa
+              <button
+                type="button"
+                onClick={exportReport}
+                disabled={!hs}
+                className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              >
+                Xuất báo cáo
+              </button>
+              {canKehoach && (
+                <button
+                  type="button"
+                  onClick={saveHoSo}
+                  disabled={hsSaving}
+                  className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  {hsSaving ? 'Đang lưu…' : 'Lưu hồ sơ'}
+                </button>
+              )}
+            </h4>
+            {hsLoading ? (
+              <div className="text-sm text-slate-400">Đang kiểm tra hồ sơ…</div>
+            ) : hs == null ? (
+              <div className="text-sm text-slate-400">Không tải được hồ sơ.</div>
+            ) : (
+              <>
+                <div
+                  className={
+                    'mb-2 rounded border px-3 py-2 text-sm ' +
+                    (hs.ok
+                      ? 'border-green-200 bg-green-50 text-green-800'
+                      : 'border-amber-200 bg-amber-50 text-amber-800')
+                  }
+                >
+                  {hs.ok ? '✅ Hồ sơ đầy đủ — có thể quyết toán.' : '⚠️ Thiếu: ' + hs.miss.join(', ')}
+                </div>
+                <ol className="space-y-1">
+                  {hs.steps.map((s) => (
+                    <li
+                      key={s.step}
+                      className="flex items-center gap-2 rounded border border-slate-100 px-3 py-1.5 text-sm"
+                    >
+                      <span
+                        className={
+                          'inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ' +
+                          (s.ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')
+                        }
+                      >
+                        {s.ok ? '✓' : '✕'}
+                      </span>
+                      <span className="flex-1">
+                        {s.step}. {s.label}
+                      </span>
+                      {s.note && <span className="text-xs text-slate-400">{s.note}</span>}
+                      {s.link && (
+                        <button
+                          type="button"
+                          onClick={() => gotoStep(s)}
+                          className="rounded border border-slate-300 px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50"
+                        >
+                          Đi tới
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+                {/* Forms nhập hồ sơ 8 bước */}
+                {canSua && (
+                  <div id="kh-form" className="mt-3 rounded border border-slate-200 p-3">
+                    <div className="mb-1 text-xs font-semibold text-slate-600">1 · Kế hoạch sửa chữa (mẫu 01)</div>
+                    <textarea
+                      value={khText}
+                      onChange={(e) => setKhText(e.target.value)}
+                      rows={2}
+                      placeholder="Mô tả kế hoạch sửa chữa…"
+                      className="block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                    />
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={saveKh}
+                        disabled={mutating || !khText.trim()}
+                        className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        Lưu kế hoạch
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {canSua && (
+                  <div id="kt-form" className="mt-3 rounded border border-slate-200 p-3">
+                    <div className="mb-1 text-xs font-semibold text-slate-600">2 · Bản kiểm tu</div>
+                    <textarea
+                      value={ktText}
+                      onChange={(e) => setKtText(e.target.value)}
+                      rows={2}
+                      placeholder="Mô tả kiểm tu / vật tư cần thay thế…"
+                      className="block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                    />
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={saveKt}
+                        disabled={mutating || !ktText.trim()}
+                        className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        Lưu kiểm tu
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {canKehoach && (
+                  <div id="nn-form" className="mt-3 rounded border border-slate-200 p-3">
+                    <div className="mb-1 text-xs font-semibold text-slate-600">7 · Biên bản nghiệm thu</div>
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <label className="block text-xs text-slate-500">Ngày</label>
+                        <input
+                          type="date"
+                          value={nnNgay}
+                          onChange={(e) => setNnNgay(e.target.value)}
+                          className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500">Tổng vật tư</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={nnVt}
+                          onChange={(e) => setNnVt(e.target.value)}
+                          className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500">Tổng nhân công</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={nnNc}
+                          onChange={(e) => setNnNc(e.target.value)}
+                          className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={saveNn}
+                        disabled={mutating}
+                        className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        Lưu nghiệm thu
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </section>
 
@@ -546,16 +809,17 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
                   Từ chối
                 </button>
               )}
-              {sc.trang_thai === 'da_hoan' && canKehoach && (
-                <button
-                  type="button"
-                  onClick={() => doAction('scQuyetToan', { sc_id: id })}
-                  disabled={mutating || api.loading}
-                  className="rounded bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-                >
-                  Quyết toán
-                </button>
-              )}
+                {sc.trang_thai === 'da_hoan' && canKehoach && (
+                  <button
+                    type="button"
+                    onClick={() => doAction('scQuyetToan', { sc_id: id })}
+                    disabled={mutating || api.loading || (hs ? !hs.ok : false)}
+                    title={hs && !hs.ok ? 'Thiếu hồ sơ: ' + hs.miss.join(', ') : undefined}
+                    className="rounded bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    Quyết toán
+                  </button>
+                )}
             </section>
           )}
 

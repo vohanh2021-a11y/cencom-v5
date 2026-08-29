@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "tsc": "tsc --noEmit",
+    "lint": "eslint lib/core/ho_so.ts lib/core/baogia.ts lib/core/sc.ts lib/rpc.ts middleware.ts \"app/(app)/sc/page.tsx\" --ext .ts,.tsx",
     "migrate": "tsx db/migrate.ts",
     "seed": "tsx db/seed.ts",
     "cleanup": "tsx scripts/cleanup_test.ts",
@@ -15,6 +16,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:ci": "node scripts/test-ci.mjs",
+    "test:conformance": "node scripts/test-conformance.mjs",
     "smoke": "node scripts/smoke.mjs",
     "e2e": "node scripts/run-e2e.mjs"
   },
@@ -37,7 +39,10 @@
     "@playwright/test": "^1.62.1",
     "@types/jest": "^30.0.0",
     "@types/supertest": "^7.2.1",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.3",
     "jest": "^30.4.2",
+    "prettier": "^3.9.6",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.12",
     "tsx": "^4.19.1"

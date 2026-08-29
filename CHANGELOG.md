@@ -2,6 +2,47 @@
 
 > Nhật ký thay đổi chính. Chi tiết hơn xem `docs/CHANGELOG.md`.
 
+## 2026-08-29 — v5.0.0-beta: Hồ sơ 8 bước sửa chữa + GPS GĐ2 compliance
+- **Feature**: Hồ sơ 8 bước sửa chữa (QC206): `checkHoSo` + `keHoachSave`/`kiemTuSave`/`nghiemThuSave` + `baogiaSave` (mirror `bao_gia_ncc`) + gate `scQuyetToan` (chặn quyết toán khi thiếu hồ sơ). UI panel `/sc` với deep-link từng bước + quyết toán disable khi chưa đủ.
+- **Schema**: 4 bảng v4 (`ke_hoach_sc`, `phieu_kiem_tu`, `bien_ban_nghiem`, cột `baogia_sc_id`/`hoso_state` trong `sc`).
+- **Security (GĐ2)**: escape XSS export HTML, CSRF/Origin check có sẵn, IDOR (sc_id existence + RBAC default-deny), logging INFO/WARN/ERROR + redact secret.
+- **Tests**: thêm `ho_so.test.ts`(14), `rpc_hoso.test.ts`(26), `qc206_hoso.test.ts`(13); sửa `business.test.ts`/`rpc.test.ts` seed 8 bước. Conformance runner per-file `scripts/test-conformance.mjs` → **289/289 PASS**. UX Playwright 10/10.
+- **Tooling**: ESLint + Prettier config (`npm run lint` 0 error trên feature files); CI `.github/workflows/ci.yml` (tsc+lint+conformance+build); `Onpremise/docs/MONITORING_ROLLBACK.md` + `healthcheck.sh` (GĐ3).
+- **Known**: 25 CVE (21 Next.js 14.2.35 + 4 postcss bundled) chưa fix được non-breaking → cần kế hoạch nâng Next 14→16 riêng biệt.
+
+## 2026-08-16 — PLAN_4.1: Nâng cấp SaaS (GĐ-0 → GĐ-4) — HOÀN THIỆN
+- **GĐ-0**: `cache.ts` (Memory/Redis abstraction), `mailer.ts` (Noop/SMTP abstraction), rate-limit login chuyển sang PG (`login_attempts`, `auth.ts` + `/api/auth`).
+- **GĐ-1**: handlers user/perm/init/audit; trang `/users`, `/audit`; export Excel + in A4 (`/in/hoa_don` thêm); `CommandPalette`; backup on-premise/cloud.
+- **GĐ-2**: sửa N+1 (`phNhapList`, `deXuatList`); phân trang thực 5 hàm core + `Pager` (sc/de-xuat/baogia); `/api/rpc` nhận object & array args.
+- **GĐ-3**: tìm kiếm toàn cục (`globalSearch` + `GlobalSearch`); thông báo drill-down + realtime; UX primitives (`EmptyState`/`ErrorState`/`Skeleton`); PWA (`manifest.ts` + `public/sw.js`).
+- **GĐ-4**: bảng `xe` bổ sung hồ sơ (chủ xe, đăng kiểm, bảo hiểm); `xe.ts` (`xeList/xeGet/xeSave/xeReminders`) + trang `/xe`,`/xe/[bks]`,`/xe/new`,`/nhac-han`; `khachhang.ts` + `/khach-hang`; in hóa đơn `/in/hoa_don`.
+- Verify: `packages/core` tsc 0 err + `vitest` **152/152 pass**; `apps/web` tsc 0 err.
+
+## 2026-08-16 — Cải thiện sau GĐ-4 (Pager/Skeleton, test, migration, E2E)
+- **Kho/vật tư**: `vatTuList` (kho.ts) có phân trang thực `{page,limit,search}` (giữ backward-compat cho dropdown); `kho/page.tsx` gắn `Pager` + tìm kiếm server + `SkeletonList`/`EmptyState`/`ErrorState`.
+- **Unit test**: thêm `tests/search.test.ts` (globalSearch) + `tests/khachhang.test.ts` (CRUD khách hàng). Core **159/159 pass** (vitest).
+- **Migration on-premise GĐ-4**: `Onpremise/migrations/004_gd4.sql` (khach_hang + ALTER xe + index).
+- **E2E Playwright**: `apps/web/e2e/` (config + auth.setup + flow: login→xe→nhắc hạn→chứng từ→hóa đơn) + `run-e2e.ps1`. *Chưa chạy live trong sandbox (5432 reset) — cần PG thực.*
+- Verify: `packages/core` tsc 0 + vitest 159/159; `apps/web` tsc 0 + `next build` success.
+
+## 2026-08-16 — E2E thực tế khép kín (Playwright + video) & fix BUG (Đợt 2)
+- **E2E live**: `apps/web/e2e/` chạy trên web `next dev` + Postgres live (Supabase local stack, 54322).
+  Mở rộng `flow.spec.ts` → **9 luồng nghiệp vụ** (SC, báo giá NCC, đề xuất ĐX, nhập/xuất kho,
+  thêm KH, hồ sơ xe, quyết toán SC, nhắc hạn) + `auth.setup`, mỗi test quay 1 `video.webm`.
+  Kết quả: **10/10 passed**, verify DB thực tế (`de_xuat_sua_chua`=2, `phieu_sua`=12,
+  `bao_gia_ncc`=10, `phieu_nhap`=8, `phieu_xuat`=6, `khach_hang`=8, `xe`=52).
+- **Fix BUG THẬT**:
+  - `packages/contract/src/schemas.ts`: trường ngày tùy chọn chấp nhận chuỗi rỗng (`optDate`
+    preprocess ''→undefined) — sửa `ngay_du_kien` SC và các trường ngày khác. Rebuild contract.
+  - `apps/web/app/(app)/de-xuat/create/page.tsx`: `PRIORITIES` → enum chuẩn
+    `['Binh_thuong','Xu_ly_som','Khan_cap']` (sửa sai lower-case + giá trị thừa) + gửi field
+    `mo_ta` (trước gửi `lydo` → validation fail).
+  - `apps/web/next.config.js`: `resolve.fallback.redis=false` — tránh build error
+    `Can't resolve 'redis'` (cache optional, in-memory mặc định) phá route `/api/rpc`.
+- **Fix TEST (tránh false-green)**: `data-testid="vattu-select"` cho select vật tư nhap/xuat;
+  `getByText(bks).first()` (strict-mode); assert URL chặt `/de-xuat/DX/`, `/sc/SC`.
+- Chi tiết: `changelog_testfix.md`.
+
 ## 2026-08-15 — GĐ-G: UI/UX Pro Max Integration
 - **Cài UI/UX Pro Max v2.13.0** vào `E:\DevTools\opencode\config\skills\ui-ux-pro-max\` (77 files: SKILL.md + data/18 CSV + scripts/4 Python + references/2 MD).
 - **Đăng ký** vào `SKILL_REGISTER.md` (GLOBAL scope). `check-skills.js` ERR=0 WARN=0 / 13 skill.
@@ -372,3 +413,53 @@ bash scripts/init_db.sh                  # schema + seed (1 lần)
 - `check-tokens.cjs` ERR=0 WARN=0
 - Core tests: 134/134 PASS
 
+## 2026-08-16 — UX VIDEO AUDIT + CRITICAL RPC DISPATCH FIX
+
+> Đánh giá vận hành UX bằng video (skill `ux-video-audit`) + kiểm tra tự động (DOM/console/RPC).
+> Video: `videos/cencom-ux-tour-2026-08-15.webm` (54s) + `.mp4` (0.9MB) + `videos/frames/*.png` (14 frames).
+
+### Phát hiện qua audit tự động (Playwright)
+- **Console 400 errors**: 86 → 36 (sau fix). Nguyên nhân gốc: **RPC dispatcher lookup sai**.
+- **Dark mode**: click toggle KHÔNG đổi `.dark` class (button nằm ngoài `ThemeProvider` context → `toggle` no-op).
+- **Mobile sidebar**: off-canvas đúng (translateX -255px), menu mở drawer → hoạt động TỐT (báo động giả ở eval sơ bộ).
+- **Không tràn ngang** (overflowX=0) trên mọi trang desktop + mobile.
+
+### 🔴 BUG NGHIÊM TRỌNG — RPC dispatch không gọi được handler (FIXED)
+- `lib/rpc-dispatch.ts` gọi `(core as Record)[fn]` (tên **flat**), nhưng `@cencom/core` chỉ export theo **namespace** (`core.kho.phNhapList`, `core.chat.chatPeers`...). → mọi hàm namespaced trả `"Handler 'X' không tồn tại"` → **toàn bộ module Kho/Chat/Đề xuất/Asset/Báo giá/SC... không load được data**.
+- `buildApi()` chỉ trả `{db, auth}`, thiếu `perm` → core functions (`checkLock` → `api.perm.can`) sẽ throw nếu gọi được.
+- **FIX**:
+  1. Thêm `resolveHandler(fn)`: thử flat, rồi quét mọi namespace `core[ns][fn]` → tìm đúng handler.
+  2. `buildApi()` bổ sung `perm: core.perm`.
+  3. `components/Shell.tsx`: `welcomeData` gọi `args: {}` → sửa `args: []` (route bắt buộc array).
+  4. `packages/core/src/welcome.ts`: thêm `welcomeData()` (alias `welcome`) + bỏ khỏi `RPC_META` (giữ `PUBLIC_FNS`) để mọi role gọi được badge/thông báo.
+- **Kết quả**: audit RPC end-to-end **74/95 handlers chạy** (từ 0 trước fix). Còn 18 handler "thiếu" là do **chưa implement / bị loại bỏ có chủ đích** (xem dưới), KHÔNG phải lỗi dispatch.
+
+### 🟠 Dark mode FIXED
+- `components/Shell.tsx`: bọc toàn bộ layout bằng `<ThemeProvider>` (thay vì chỉ bọc `children`) → `Topbar` nằm TRONG context `useDarkMode` → toggle thêm `.dark` class, biến `--c-bg` đổi `#FBF6EE`→`#0F172A`, nền wrapper đổi tối. Xác nhận: `cls="dark"` + wrapper bg `rgb(15,23,42)`.
+
+### 🟡 18 handler còn "thiếu" (FINDINGS — chưa fix, cần plan riêng)
+- **Quản lý user/perm (admin)**: `userAdd, userSetPassword, userSetActive, permMatrix, permSave, thresholdsSet` — chưa có trong core → UI user/perm edit sẽ lỗi. *Đề xuất: implement trong core hoặc bỏ khỏi RPC_META nếu chưa tới hồi.*
+- **Báo giá**: `baoGiaCompare` — chưa implement.
+- **App init (gọi lúc load)**: `currentUser, appInfo, myPerms, roleOptions, thresholds, vehiclesOptions, phongbanList, checklistGroups, formInitData` — chưa có trong core → các call này 400 (app vẫn chạy, chỉ thiếu data khởi tạo). *Đề xuất: implement các hàm init đơn giản hoặc map đúng tên.*
+- **Bị loại bỏ có chủ đích (GĐ2 bỏ TK)**: `fleetReport, accountingReport` — đã xoá implementation nhưng vẫn còn trong `PUBLIC_FNS` → nên xoá khỏi đăng ký.
+
+### Files changed
+- `apps/web/lib/rpc-dispatch.ts` — `resolveHandler` + `buildApi` có `perm`.
+- `apps/web/components/Shell.tsx` — `args: []` + bọc `ThemeProvider`.
+- `packages/core/src/welcome.ts` — thêm `welcomeData`.
+
+### Verify
+- `npx tsc --noEmit` (apps/web): 0 err.
+- RPC audit: 74/95 handlers ok; dark mode + mobile drawer verified by Playwright.
+- Core tests: 134/134 PASS (không đổi core logic).
+- Video re-record (20 bước) hoàn thành không lỗi.
+
+
+## E2E thực tế (Playwright + video) — 16/08
+- Chạy 
+px playwright test --config e2e/playwright.config.ts trên web (localhost:3000) + Postgres live (Supabase local 54322): **4/4 passed**, 4 video ideo.webm tại pps/web/test-results/<test>/.
+- **Bug fix 1 (phân quyền):** perm.permsOfRole('admin') trả {all:['all']} -> admin không có key perms['mua'] -> UI ẩn nút 'Tạo chứng từ'. Sửa trả đủ mọi module+feature; cập nhật perm.test.ts/gd41.test.ts.
+- **Bug fix 2 (schema xe):** xeSave INSERT cột chu_xe nhưng bảng xe (init on-premise) thiếu cột -> lỗi column chu_xe does not exist, xe không lưu được (E2E cũ false-green). Sửa: ALTER live DB + Onpremise/migrations/005_chu_xe.sql (idempotent). schema.sql cloud đã có sẵn.
+- Siết assert E2E (tránh false-green): xe assert trang chi tiết hiển thị biển số; baogia assert toast + reload list thấy dòng. Dùng biến unique để chạy lặp.
+- **Verify:** DB thực tế có 2 xe 51C-% (chu_xe lưu đúng) + 2 ao_gia_ncc NCC E2E %. Core tests **159/159 pass**.
+- Xem changelog_testfix.md để theo dõi từng đợt kiểm tra.

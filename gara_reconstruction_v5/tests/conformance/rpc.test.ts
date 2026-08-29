@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { getAdminToken, getGiamdocToken, getXuongToken, getKetoanToken, getKhoToken } from './setup';
+import { db } from '../../lib/db';
 
 const BASE = process.env.TEST_BASE_URL || 'http://localhost:3000';
 
@@ -148,16 +149,51 @@ describe('RPC Contract (32 fn)', () => {
     expect(res.body.ok).toBe(true); 
   });
   test('scQuyetToan (ketoan)', async () => { 
-    const sc = await rpc(getGiamdocToken(), 'scList'); 
-    let scId: string;
-    if (sc.body.result.length === 0) {
-      const xe = await rpc(getGiamdocToken(), 'xeList');
-      const createRes = await rpc(getXuongToken(), 'scCreate', {xe_id: xe.body.result[0].id, ngay: new Date().toISOString().split('T')[0]});
-      expect(createRes.body.ok).toBe(true);
-      scId = createRes.body.result.id;
-    } else {
-      scId = sc.body.result[0].id;
-    }
+    // Tạo SC mới + seed đủ hồ sơ 8 bước (checkHoSo gate)
+    const xe = await rpc(getGiamdocToken(), 'xeList');
+    expect(xe.body.result.length).toBeGreaterThan(0);
+    const createRes = await rpc(getXuongToken(), 'scCreate', {xe_id: xe.body.result[0].id, ngay: new Date().toISOString().split('T')[0]});
+    expect(createRes.body.ok).toBe(true);
+    const scId = createRes.body.result.id;
+
+    // Lấy vattu để seed nhap_xuat
+    const vtRes = await rpc(getGiamdocToken(), 'vattuList');
+    expect(vtRes.body.result.length).toBeGreaterThan(0);
+    const vtId = vtRes.body.result[0].id;
+
+    // B1: ke_hoach_sc
+    await rpc(getXuongToken(), 'keHoachSave', {sc_id: scId, mo_ta: 'KH QT test'});
+    // B2: phieu_kiem_tu
+    await rpc(getXuongToken(), 'kiemTuSave', {sc_id: scId, mo_ta: 'KT QT test'});
+    // B3: bao_gia_ncc (baogiaSave tự mirror với ocr_xac_nhan=1)
+    await rpc(getKetoanToken(), 'baogiaSave', {
+      sc_id: scId, ncc: 'NCC QT', ngay: new Date().toISOString().split('T')[0],
+      items: [{ten: 'VT QT', so_luong: 1, don_gia: 100000}]
+    });
+    // B4: nhap_xuat nhap (nhapKho RPC hardcode sc_id=null → insert trực tiếp)
+    const ts4 = Date.now();
+    await db.query(
+      "INSERT INTO nhap_xuat (id, vattu_id, loai, so_luong, don_gia, ngay, ly_do, nguoi, sc_id, is_test, deleted_at) VALUES ($1,$2,'nhap',1,50000,$3,'seed QT',NULL,$4,1,'')",
+      ['NX-' + String(ts4).slice(-6), vtId, new Date().toISOString().split('T')[0], scId]
+    );
+    // B5: nhap_xuat xuat (insert trực tiếp để tránh lỗi tồn kho)
+    await db.query(
+      "INSERT INTO nhap_xuat (id, vattu_id, loai, so_luong, don_gia, ngay, ly_do, nguoi, sc_id, is_test, deleted_at) VALUES ($1,$2,'xuat',1,50000,$3,'seed QT',NULL,$4,1,'')",
+      ['NX-' + String(ts4 + 1).slice(-6), vtId, new Date().toISOString().split('T')[0], scId]
+    );
+    // B7: bien_ban_nghiem
+    await rpc(getKetoanToken(), 'nghiemThuSave', {
+      sc_id: scId, ngay_nghiem: new Date().toISOString().split('T')[0],
+      tong_vat_tu: 100000, tong_nhan_cong: 50000
+    });
+    // B8: sc.tong > 0
+    await db.query("UPDATE sc SET tong = 150000 WHERE id = $1 AND deleted_at = $2", [scId, '']);
+
+    // Chuyển SC sang da_hoan (scQuyetToan yêu cầu trang_thai = da_hoan)
+    await rpc(getXuongToken(), 'scBatDauSua', {sc_id: scId});
+    await rpc(getXuongToken(), 'scHoanThanh', {sc_id: scId});
+
+    // scQuyetToan — ketoan role
     const res = await rpc(getKetoanToken(), 'scQuyetToan', {sc_id: scId}); 
     expect(res.body.ok).toBe(true); 
   });

@@ -47,6 +47,39 @@ describe('Business Logic - State Machine SC', () => {
   });
 
   test('scQuyetToan: da_hoan → da_quyet (ketoan only)', async () => {
+    // Seed8 bước hồ sơ (checkHoSo gate) trước khi quyết toán
+    const vtRes = await rpc(getGiamdocToken(), 'vattuList');
+    expect(vtRes.body.result.length).toBeGreaterThan(0);
+    const vtId = vtRes.body.result[0].id;
+
+    // B1: ke_hoach_sc
+    await rpc(getXuongToken(), 'keHoachSave', {sc_id: testScId, mo_ta: 'KH QT'});
+    // B2: phieu_kiem_tu
+    await rpc(getXuongToken(), 'kiemTuSave', {sc_id: testScId, mo_ta: 'KT QT'});
+    // B3: bao_gia_ncc (baogiaSave tự mirror với ocr_xac_nhan=1)
+    await rpc(getKetoanToken(), 'baogiaSave', {
+      sc_id: testScId, ncc: 'NCC QT', ngay: new Date().toISOString().split('T')[0],
+      items: [{ten: 'VT QT', so_luong: 1, don_gia: 100000}]
+    });
+    // B4: nhap_xuat nhap (nhapKho RPC hardcode sc_id=null → insert trực tiếp)
+    const ts4 = Date.now();
+    await db.query(
+      "INSERT INTO nhap_xuat (id, vattu_id, loai, so_luong, don_gia, ngay, ly_do, nguoi, sc_id, is_test, deleted_at) VALUES ($1,$2,'nhap',1,50000,$3,'seed QT',NULL,$4,1,'')",
+      ['NX-' + String(ts4).slice(-6), vtId, new Date().toISOString().split('T')[0], testScId]
+    );
+    // B5: nhap_xuat xuat (insert trực tiếp để tránh lỗi tồn kho)
+    await db.query(
+      "INSERT INTO nhap_xuat (id, vattu_id, loai, so_luong, don_gia, ngay, ly_do, nguoi, sc_id, is_test, deleted_at) VALUES ($1,$2,'xuat',1,50000,$3,'seed QT',NULL,$4,1,'')",
+      ['NX-' + String(ts4 + 1).slice(-6), vtId, new Date().toISOString().split('T')[0], testScId]
+    );
+    // B7: bien_ban_nghiem
+    await rpc(getKetoanToken(), 'nghiemThuSave', {
+      sc_id: testScId, ngay_nghiem: new Date().toISOString().split('T')[0],
+      tong_vat_tu: 100000, tong_nhan_cong: 50000
+    });
+    // B8: sc.tong > 0
+    await db.query("UPDATE sc SET tong = 150000 WHERE id = $1 AND deleted_at = $2", [testScId, '']);
+
     const res = await rpc(getKetoanToken(), 'scQuyetToan', { sc_id: testScId });
     expect(res.body.ok).toBe(true);
     const getRes = await rpc(getGiamdocToken(), 'scGet', { id: testScId });

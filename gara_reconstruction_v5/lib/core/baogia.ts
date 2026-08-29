@@ -76,6 +76,19 @@ export async function baogiaSave(
     );
   }
 
+  // Mirror sang bao_gia_ncc (bước 3 hồ sơ 8 bước, semantic v4: báo giá NCC đã xác nhận)
+  if (p.sc_id) {
+    try {
+      const bgnId = await nextId('BGN');
+      await run(
+        'INSERT INTO bao_gia_ncc (id, sc_id, ncc, ngay, tong, ocr_xac_nhan, anh_bao_gia, nguoi_tao, is_test, deleted_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+        [bgnId, p.sc_id, p.ncc ?? null, p.ngay, tong, 1, '', u?.id ?? null, isTest, '']
+      );
+    } catch (e) {
+      log.logError('mirror bao_gia_ncc failed', e, { id });
+    }
+  }
+
   try {
     await logActivity(api.db, {
       actor_id: u?.id,
