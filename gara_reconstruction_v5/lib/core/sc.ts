@@ -45,6 +45,33 @@ async function getSc(api: Api, id: string): Promise<any> {
   return r;
 }
 
+/**
+ * W0.2 — Tính lại tong_cong / tong_vt / tong của phiếu SC từ chính dòng chi tiết
+ * (1 statement UPDATE atomic — aggregate recomputed, không cộng dồn incremental).
+ *
+ * Port NGUYÊN công thức v3.6 server/sc.js recalc(scId) (dòng 35–46):
+ *  - tong_cong = SUM(so_luong * don_gia)                      FROM sc_congviec (soft-delete filter deleted_at='')
+ *  - tong_vt   = SUM(so_luong * (CASE WHEN gd_tt>0 THEN gd_tt ELSE gd_dk END)) FROM sc_vattu (soft-delete filter)
+ *      → schema v5 (db/schema.sql dòng 70–78) sc_vattu KHÔNG có cột don_gia;
+ *        giá vt = gd_tt (giá thanh toán sau nghiệm thu) nếu >0, ngược lại gd_dk (giá đăng ký/báo giá).
+ *        CASE WHEN gd_tt>0 tương đương COALESCE(NULLIF(gd_tt,0),gd_dk) với dữ liệu giá không âm,
+ *        nhưng giữ đúng v3.6: gd_tt chỉ được ưu tiên khi chặt > 0 (NULL/0 → dùng gd_dk).
+ *  - tong      = tong_cong + tong_vt (tính lại bằng subquery vì không được tham chiếu giá trị
+ *                vừa gán trong cùng câu UPDATE).
+ * Dòng có so_luong/don_gia NULL: tích NULL → SUM bỏ qua (đúng như v3.6); rỗng hoàn toàn → COALESCE về 0.
+ */
+async function recalcScTotals(scId: string): Promise<void> {
+  await run(
+    "UPDATE sc SET " +
+      "tong_cong = COALESCE((SELECT SUM(so_luong * don_gia) FROM sc_congviec WHERE sc_id=$1 AND deleted_at=''),0), " +
+      "tong_vt = COALESCE((SELECT SUM(so_luong * (CASE WHEN gd_tt>0 THEN gd_tt ELSE gd_dk END)) FROM sc_vattu WHERE sc_id=$1 AND deleted_at=''),0), " +
+      "tong = COALESCE((SELECT SUM(so_luong * don_gia) FROM sc_congviec WHERE sc_id=$1 AND deleted_at=''),0) " +
+      "       + COALESCE((SELECT SUM(so_luong * (CASE WHEN gd_tt>0 THEN gd_tt ELSE gd_dk END)) FROM sc_vattu WHERE sc_id=$1 AND deleted_at=''),0) " +
+      "WHERE id=$1 AND deleted_at=''",
+    [scId]
+  );
+}
+
 export async function scList(api: Api, filter?: { trang_thai?: string }): Promise<any[]> {
   const u = api.auth.current();
   const role = u?.role;
@@ -92,6 +119,8 @@ export async function scCreate(api: Api, p: { xe_id: string; ngay: string }): Pr
     'INSERT INTO sc (id, xe_id, ngay_tao, nguoi_tao, trang_thai, is_test, deleted_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
     [id, xeId, ngay, u?.id, 'de_xuat', isTest, '']
   );
+  // W0.2: khởi tạo tong_* = 0 từ dòng (đảm bảo 3 cột luôn là số, không NULL, cùng trạng thái với dòng con)
+  await recalcScTotals(id);
   try {
     await logActivity(api.db, {
       actor_id: u?.id,
@@ -131,6 +160,8 @@ export async function scAddCongViec(
     'INSERT INTO sc_congviec (id, sc_id, stt, mo_ta, nguyen_nhan, loai_xu_ly, so_luong, don_gia) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
     [id, scId, stt, moTa, p.nguyen_nhan ?? null, p.loai_xu_ly ?? null, p.so_luong ?? null, p.don_gia ?? null]
   );
+  // W0.2: cập nhật tổng tiền SC từ dòng sau khi INSERT công việc
+  await recalcScTotals(scId);
   try {
     await logActivity(api.db, {
       actor_id: u?.id,
@@ -163,6 +194,8 @@ export async function scAddVatTu(
     'INSERT INTO sc_vattu (id, sc_id, vattu_id, so_luong) VALUES ($1,$2,$3,$4)',
     [id, scId, vattuId, soLuong]
   );
+  // W0.2: cập nhật tổng tiền SC từ dòng sau khi INSERT vật tư
+  await recalcScTotals(scId);
   try {
     await logActivity(api.db, {
       actor_id: u?.id,

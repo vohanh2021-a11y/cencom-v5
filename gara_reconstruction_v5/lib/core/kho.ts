@@ -1,5 +1,6 @@
+import type { PoolClient } from 'pg';
 import type { Api } from '../types';
-import { row, run, nextId } from '../db';
+import { row, run, nextId, withTransaction } from '../db';
 import { logActivity } from './activity';
 import { createScopedLogger } from '../observability';
 
@@ -24,6 +25,24 @@ function optionalStr(v: any, label: string): void {
   if (v !== undefined && v !== null && v !== '' && typeof v !== 'string') {
     throw new Error(label + ' không hợp lệ');
   }
+}
+
+/**
+ * Ghi audit activity_log BẰNG CLIENT CỦA TRANSACTION đang mở.
+ * logActivity() chuẩn dùng pool (connection khác) → nếu gọi trong withTransaction sẽ:
+ *   (1) không nằm trong tx (rollback vẫn lọt dòng audit "ma"), và
+ *   (2) cần thêm connection khi 10 tx đang giữ kín pool → deadlock.
+ * Vì vậy ghi qua `client` với đúng bộ cột/giá trị như logActivity; tx lỗi → audit
+ * cùng rollback (nhất quán ghi + log theo Chuan 3b/Chuan 1).
+ */
+async function auditTx(
+  client: PoolClient,
+  p: Parameters<typeof logActivity>[1]
+): Promise<void> {
+  await client.query(
+    'INSERT INTO activity_log (actor_id,actor_role,hanh_dong,doi_tuong,doi_tuong_id,sc_id,mo_ta,is_test) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+    [p.actor_id ?? null, p.actor_role ?? null, p.hanh_dong, p.doi_tuong ?? null, p.doi_tuong_id ?? null, p.sc_id ?? null, p.mo_ta ?? null, p.is_test ?? 0]
+  );
 }
 
 export async function vattuList(api: Api): Promise<any[]> {
@@ -77,17 +96,23 @@ export async function nhapKho(
   optionalNumber(p?.don_gia, 'don_gia');
   optionalStr(p?.ly_do, 'ly_do');
   if (typeof p?.ngay !== 'string' || !p.ngay.trim()) throw new Error('Thiếu ngay');
+  //Counter chạy connection riêng TRƯỚC khi mở tx — nextId tự BEGIN, không được
+  //gọi lồng trong withTransaction (giữ 1 connection/tx, chống hết pool khi 10 tx song song)
   const id = await nextId('NX');
-  await run(
-    "INSERT INTO nhap_xuat (id,vattu_id,loai,so_luong,don_gia,ngay,ly_do,nguoi,sc_id) VALUES ($1,$2,'nhap',$3,$4,$5,$6,$7,null)",
-    [id, p.vattu_id, soLuong, p.don_gia ?? null, p.ngay, p.ly_do ?? null, u?.id ?? null]
-  );
-  await run('UPDATE vattu SET ton=ton+$2 WHERE id=$1', [p.vattu_id, soLuong]);
-  try {
-    await logActivity(api.db, { actor_id: u?.id, actor_role: role, hanh_dong: 'kho_nhap', doi_tuong: 'nhap_xuat', doi_tuong_id: id, is_test: role === 'admin' ? 1 : 0 });
-  } catch (e) {
-    log.logError('logActivity kho_nhap failed', e, { id, vattu_id: p.vattu_id });
-  }
+  //W0.1: phiếu nhập + tăng ton + cập nhật gia (khi có don_gia, COALESCE giữ giá cũ
+  //nếu null — hành vi như v3.6) + audit → TẤT CẢ 1 tx, ROLLBACK toàn bộ nếu lỗi giữa chừng.
+  //Ghi chú: ton_cu_hong CHƯA tồn tại ở schema v5 (đưa vào W1.3) → chưa guard nhánh hỏng.
+  await withTransaction(async (client) => {
+    await client.query(
+      "INSERT INTO nhap_xuat (id,vattu_id,loai,so_luong,don_gia,ngay,ly_do,nguoi,sc_id) VALUES ($1,$2,'nhap',$3,$4,$5,$6,$7,null)",
+      [id, p.vattu_id, soLuong, p.don_gia ?? null, p.ngay, p.ly_do ?? null, u?.id ?? null]
+    );
+    await client.query(
+      'UPDATE vattu SET ton = ton + $2, gia = COALESCE($3::numeric, gia) WHERE id = $1',
+      [p.vattu_id, soLuong, p.don_gia ?? null]
+    );
+    await auditTx(client, { actor_id: u?.id, actor_role: role, hanh_dong: 'kho_nhap', doi_tuong: 'nhap_xuat', doi_tuong_id: id, is_test: role === 'admin' ? 1 : 0 });
+  });
   return { id };
 }
 
@@ -101,19 +126,34 @@ export async function xuatKho(
   if (typeof p?.vattu_id !== 'string' || !p.vattu_id.trim()) throw new Error('Thiếu vattu_id');
   const soLuong = requirePositiveNumber(p?.so_luong, 'so_luong');
   optionalStr(p?.ly_do, 'ly_do');
-  const v = await row('SELECT ton FROM vattu WHERE id=$1', [p.vattu_id]);
-  if ((v?.ton || 0) < soLuong) throw new Error('Thiếu tồn kho');
+  //Counter lấy TRƯỚC khi mở tx (lý do pool như nhapKho); phiếu bị rollback chỉ để
+  //lệch số đếm NX — cùng loại hành vi đã có trước đây (id cấp trước INSERT).
   const id = await nextId('NX');
-  await run(
-    "INSERT INTO nhap_xuat (id,vattu_id,loai,so_luong,sc_id,ly_do,nguoi) VALUES ($1,$2,'xuat',$3,$4,$5,$6)",
-    [id, p.vattu_id, soLuong, p.sc_id ?? null, p.ly_do ?? null, u?.id ?? null]
-  );
-  await run('UPDATE vattu SET ton=ton-$2 WHERE id=$1', [p.vattu_id, soLuong]);
-  try {
-    await logActivity(api.db, { actor_id: u?.id, actor_role: role, hanh_dong: 'kho_xuat', doi_tuong: 'nhap_xuat', doi_tuong_id: id, sc_id: p.sc_id, is_test: role === 'admin' ? 1 : 0 });
-  } catch (e) {
-    log.logError('logActivity kho_xuat failed', e, { id, vattu_id: p.vattu_id });
-  }
+  //W0.1: bỏ hoàn toàn check-then-act (`SELECT ton` rồi trừ) vốn TOCTOU — 2 lệnh
+  //song song cùng đọc ton và cùng trừ (lost update/âm tồn). Phép trừ giờ là
+  //row-guard ATOMIC: UPDATE chỉ khớp dòng khi ton còn đủ; ở READ COMMITTED, câu
+  //UPDATE đi sau chờ lock của tx trước rồi ĐÁNH GIÁ LẠI điều kiện `ton >= $2`
+  //trên giá trị mới nhất đã commit → không bao giờ trừ quá tồn.
+  //TODO(W1.3): khi schema có ton_cu_hong, thêm nhánh guard `ton_cu_hong >= $2` tương tự.
+  await withTransaction(async (client) => {
+    const upd = await client.query(
+      'UPDATE vattu SET ton = ton - $2 WHERE id = $1 AND ton >= $2 RETURNING ton',
+      [p.vattu_id, soLuong]
+    );
+    if (upd.rowCount === 0) {
+      //Không đủ tồn (hoặc vattu không tồn tại) → đọc ton hiện hành CHỈ để soạn thông báo,
+      //rồi NÉM → withTransaction ROLLBACK: không phiếu xuất, không trừ ton, không audit.
+      const cur = await client.query('SELECT ton FROM vattu WHERE id = $1', [p.vattu_id]);
+      const tonHienHanh = cur.rows[0]?.ton ?? 0;
+      throw new Error(`Thiếu tồn kho (ton: ${tonHienHanh})`);
+    }
+    await client.query(
+      "INSERT INTO nhap_xuat (id,vattu_id,loai,so_luong,sc_id,ly_do,nguoi) VALUES ($1,$2,'xuat',$3,$4,$5,$6)",
+      [id, p.vattu_id, soLuong, p.sc_id ?? null, p.ly_do ?? null, u?.id ?? null]
+    );
+    await auditTx(client, { actor_id: u?.id, actor_role: role, hanh_dong: 'kho_xuat', doi_tuong: 'nhap_xuat', doi_tuong_id: id, sc_id: p.sc_id, is_test: role === 'admin' ? 1 : 0 });
+    //TODO(W1.4): autoXuatSC + sc_vattu.da_xuat (chưa có cột ở v5) sẽ đi vào cùng tx này.
+  });
   return { id };
 }
 
@@ -159,15 +199,22 @@ export async function dmNhap(api: Api, p: { dm_id: string }): Promise<{ ok: true
   const role = u?.role;
   if (!(await api.perm.can(api.db, role!, 'kho', 'tao'))) throw new Error('403');
   if (typeof p?.dm_id !== 'string' || !p.dm_id.trim()) throw new Error('Thiếu dm_id');
-  const rows = (await api.db.query('SELECT vattu_id,so_luong FROM dm_chitiet WHERE dm_id=$1', [p.dm_id])).rows;
-  for (const d of rows) {
-    await run('UPDATE vattu SET ton=ton+$2 WHERE id=$1', [d.vattu_id, d.so_luong]);
-  }
-  await run("UPDATE dm SET trang_thai='da_nhap' WHERE id=$1", [p.dm_id]);
-  try {
-    await logActivity(api.db, { actor_id: u?.id, actor_role: role, hanh_dong: 'dm_nhap', doi_tuong: 'dm', doi_tuong_id: p.dm_id, is_test: role === 'admin' ? 1 : 0 });
-  } catch (e) {
-    log.logError('logActivity dm_nhap failed', e, { dm_id: p.dm_id });
-  }
+  //W0.1: TOÀN BỘ vòng items + đổi trạng thái DM + audit trong 1 tx.
+  //Lỗi giữa vòng (vd vattu_id gãy FK) → ROLLBACK: không "nhập nửa DM" (ton đã tăng
+  //một phần trong khi dm vẫn 'cho_duyet'). SELECT ... FOR UPDATE khóa dòng dm →
+  //2 lệnh dmNhap song song trên CÙNG dm tuần tự hóa, không cộng ton chồng chéo
+  //trước khi tx thứ nhất commit. Realtime: trigger pg_notify trên vattu/dm chỉ
+  //phát tín hiệu sau COMMIT (hành vi PostgreSQL) → subscriber không thấy dữ liệu ma.
+  const isTest = role === 'admin' ? 1 : 0;
+  await withTransaction(async (client) => {
+    await client.query('SELECT id FROM dm WHERE id = $1 FOR UPDATE', [p.dm_id]);
+    const rows = (await client.query('SELECT vattu_id,so_luong FROM dm_chitiet WHERE dm_id=$1', [p.dm_id])).rows;
+    for (const d of rows) {
+      //Nhập = tăng tồn → không cần WHERE-guard (không thể sinh tồn âm từ phép cộng)
+      await client.query('UPDATE vattu SET ton = ton + $2 WHERE id = $1', [d.vattu_id, d.so_luong]);
+    }
+    await client.query("UPDATE dm SET trang_thai='da_nhap' WHERE id=$1", [p.dm_id]);
+    await auditTx(client, { actor_id: u?.id, actor_role: role, hanh_dong: 'dm_nhap', doi_tuong: 'dm', doi_tuong_id: p.dm_id, is_test: isTest });
+  });
   return { ok: true };
 }
