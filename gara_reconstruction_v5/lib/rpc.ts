@@ -5,6 +5,7 @@ import * as bg from './core/baogia';
 import * as hs from './core/ho_so';
 import * as act from './core/activity';
 import * as xe from './core/xe';
+import * as asset from './core/asset';
 import { can, ROLES } from './perm';
 
 export const FN_LIST: string[] = [
@@ -44,6 +45,18 @@ export const FN_LIST: string[] = [
   'activityFeed',
   'dashboard',
   'report',
+  'phieuList',
+  'phieuGet',
+  // W1.6f: quyết toán tài sản — khấu hao + chi phí tích luỹ + GTTV (read-only)
+  'assetXe',
+  'assetReport',
+  // W1b-reg: tồn kho (kèm cảnh báo thiếu + giá trị tồn) + lịch sử giá — read-only
+  'tonKho',
+  'giaLichSuList',
+  // W1c-reg: bảng kê vật tư thanh lý — read-only.
+  // autoGenCuHong/autoXuatSC (core/kho.ts) KHÔNG đăng ký ở đây: hàm nội bộ,
+  // chạy trong transaction của ngữ cảnh khác — hook W3 scHoanThanh.
+  'thanhLyList',
 ];
 
 export const OPEN: Set<string> = new Set(['login', 'logout', 'currentUser', 'appInfo']);
@@ -81,6 +94,24 @@ const META: Record<string, [string, string]> = {
   activityFeed: ['activityFeed', 'xem'],
   dashboard: ['dashboard', 'xem'],
   report: ['report', 'xem'],
+  //W1a: phiếu 2 tầng — READ trên module kho (mọi role có kho.xem)
+  phieuList: ['kho', 'xem'],
+  phieuGet: ['kho', 'xem'],
+  // W1.6f: asset — module 'asset' CHƯA tồn tại trong MATRIX (lib/perm.ts);
+  // META ['asset','xem'] sẽ fail-closed 403 mọi role trừ admin (dispatch dòng
+  // can() tra rm['asset'] = undefined). Quyền bản chất là ĐỌC hồ sơ xe → ['xe','xem']
+  // (MATRIX: giamdoc/xuong/ketoan/kho đều có xe.xem; admin bypass all).
+  assetXe: ['xe', 'xem'],
+  assetReport: ['xe', 'xem'],
+  // W1b-reg: tồn kho + lịch sử giá — READ module kho (mọi role có kho.xem).
+  // KHÔNG có fn ghi ở đây: ghiGiaLichSu là hàm nội bộ chạy trong transaction
+  // của nhapKho/dmNhap/xuatKho (core/kho.ts), không phải RPC endpoint.
+  tonKho: ['kho', 'xem'],
+  giaLichSuList: ['kho', 'xem'],
+  // W1c-reg: bảng kê thanh lý — READ module kho (mọi role có kho.xem).
+  // autoGenCuHong/autoXuatSC không có entry: nội bộ, hook W3 scHoanThanh
+  // (không phải RPC endpoint — xem comment FN_LIST).
+  thanhLyList: ['kho', 'xem'],
 };
 
 /* eslint-disable no-unused-vars */
@@ -134,6 +165,22 @@ const HANDLERS: Record<string, (_api: Api, _args: any) => Promise<any>> = {
   activityFeed: (api, a) => act.activityFeed(api, a),
   dashboard: (_api, _a) => Promise.resolve({ ok: true }),
   report: (_api, _a) => Promise.resolve({ ok: true }),
+  phieuList: (api, a) => kho.phieuList(api, a),
+  phieuGet: (api, a) => kho.phieuGet(api, a),
+  // W1.6f: core/asset.ts exports assetXe(api, {id}) / assetReport(api, args?) —
+  // handler tự trả envelope {ok,result}/{ok,error:'404'|'500'}, KHÔNG throw.
+  assetXe: (api, a) => asset.assetXe(api, a),
+  assetReport: (api, a) => asset.assetReport(api, a),
+  // W1b-reg: core/kho.ts exports tonKho(api, {low_only?,page?,limit?}) /
+  // giaLichSuList(api, {vattu_id, limit?}) — cả hai tự trả envelope
+  // {ok,result}/{ok,error}, không throw (khác contract cũ nhapKho/xuatKho).
+  // Dispatch truyền args||{} → tonKho nhận {} mặc định an toàn.
+  tonKho: (api, a) => kho.tonKho(api, a),
+  giaLichSuList: (api, a) => kho.giaLichSuList(api, a),
+  // W1c-reg: core/kho.ts exports thanhLyList(api, {from?,to?,sc_id?,limit?,offset?})
+  // — tự trả envelope {ok,result,total}/{ok,error}, không throw (cùng pattern
+  // tonKho). Dispatch truyền args||{} → thanhLyList nhận {} mặc định an toàn.
+  thanhLyList: (api, a) => kho.thanhLyList(api, a),
 };
 /* eslint-enable no-unused-vars */
 

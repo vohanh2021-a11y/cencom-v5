@@ -8,7 +8,9 @@
  * Contract with index.ts (DO NOT fork behaviour):
  *   - Tool name === RPC fn name; description from tool-docs.ts; inputSchema from
  *     lib/contracts.getToolInputSchema(fn); WRITE tools gated by MCP_WRITE_TOOLS.
- *   - NO resources / prompts registered here — those belong to index.ts (other worker).
+ *   - W1.8a (điểm 3.1+3.4): tool loop KHÔNG còn copy ở đây — cả hai mode gọi
+ *     CHUNG server-core.registerAll(). HTTP cũng register resources+prompts
+ *     qua resources.ts y hệt stdio → AI host LAN thấy đủ tool/resource/prompt.
  *   - Auth (bearer at the HTTP edge) + RBAC/audit are layered exactly like stdio:
  *     HTTP Bearer guards the socket, core `can()` stays the final referee per call.
  *
@@ -41,9 +43,9 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { getRegistry } from '../lib/rpc';
 import { buildApi } from '../lib/api';
-import { resolveActor, isWriteAllowed, auditMcpCall } from './auth';
-import { TOOL_DOCS } from './tool-docs';
-import { getToolInputSchema } from '../lib/contracts';
+import { resolveActor } from './auth';
+import { registerAll, computeToolNames, assertDocsComplete } from './server-core';
+import { registerResources, registerPrompts } from './resources';
 
 /* ──────────────────────────────────────────────────────────────
  * Constants / small helpers
@@ -129,73 +131,34 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /* ──────────────────────────────────────────────────────────────
- * Server factory — EXACT same 32-tool registration as index.ts §5.
+ * Server factory — W1.8a: vòng tool KHÔNG còn copy ở đây; dùng CHUNG
+ * server-core.registerAll() với index.ts (điểm 3.4) VÀ đăng ký thêm
+ * resources/prompts qua resources.ts (điểm 3.1) → parity đủ 3 capabilities.
  * A fresh McpServer instance per HTTP session (SDK requirement: one
  * Protocol state per connected transport), stdio uses a single one.
  * ────────────────────────────────────────────────────────────── */
 
 type ToolName = string;
 
-function createServerInstance(opts: {
+async function createServerInstance(opts: {
   version: string;
   toolNames: ToolName[];
   actor: Awaited<ReturnType<typeof resolveActor>>;
   api: ReturnType<typeof buildApi>;
-}): McpServer {
+}): Promise<McpServer> {
   const server = new McpServer({ name: 'cencom-gara-v5', version: opts.version });
 
   const reg = getRegistry();
   const { actor, api } = opts; // resolved + built ONCE in main(), shared by all sessions
 
-  for (const fn of opts.toolNames) {
-    const doc = TOOL_DOCS[fn];
-    const meta = reg.META[fn];
-    const perm = meta ? meta.join('.') : 'UNKNOWN';
-    const mode = doc.mode;
+  // Tools: docs-gate + description + WRITE guard + audit — 1 source, hành vi
+  // y hệt stdio (registerAll throw [MCP BOOT] nếu thiếu TOOL_DOCS).
+  await registerAll(server, api, reg, actor);
 
-    const description =
-      `[vi] ${doc.descVi} | [en] ${doc.descEn} | perm: ${perm} | mode: ${mode}`;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const handler = async (args: Record<string, unknown>): Promise<any> => {
-      // WRITE guard: check MCP_WRITE_TOOLS allowlist BEFORE calling handler
-      if (doc.mode === 'WRITE' && !isWriteAllowed(fn)) {
-        await auditMcpCall(fn, actor, false);
-        return {
-          content: [{ type: 'text' as const, text: `403 write tool disabled: ${fn}` }],
-          isError: true,
-        };
-      }
-
-      try {
-        // Call core handler directly — RBAC is enforced inside handlers
-        const result = await reg.HANDLERS[fn](api, args || {});
-        await auditMcpCall(fn, actor, true);
-        return {
-          content: [
-            // Guard: JSON.stringify(undefined) returns undefined (not string),
-            // which fails SDK's CallToolResultSchema validation.
-            { type: 'text' as const, text: JSON.stringify(result ?? null, null, 2) },
-          ],
-        };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        await auditMcpCall(fn, actor, false);
-        return {
-          content: [{ type: 'text' as const, text: `ERROR: ${message}` }],
-          isError: true,
-        };
-      }
-    };
-
-    // Register with cast to bypass SDK generic depth limit (same as index.ts)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (server.registerTool as any)(
-      fn,
-      { title: doc.title, description, inputSchema: getToolInputSchema(fn) },
-      handler,
-    );
-  }
+  // Resources sc://{sc_id}, xe://{xe_id} + prompt QC206 — TRƯỚC đây chỉ stdio
+  // có; HTTP client nay thấy đầy đủ (RBAC vẫn do core handlers trọng tài).
+  await registerResources(server, api);
+  await registerPrompts(server);
 
   return server;
 }
@@ -246,7 +209,7 @@ async function runHttpMode(ctx: ServerCtx): Promise<void> {
       warn(`transport error: ${err.message}`);
     };
 
-    const server = createServerInstance(ctx);
+    const server = await createServerInstance(ctx);
     await server.connect(transport);
     await transport.handleRequest(req, res, body);
   };
@@ -373,16 +336,11 @@ async function main(): Promise<void> {
   const api = buildApi(actor);
 
   // ─── 3. Tool list: FN_LIST \ OPEN, docs-complete (same gate as index.ts) ───
+  // Shared helpers from server-core — gate chạy fail-fast TRƯỚC khi bind port;
+  // registerAll() gọi lại assertDocsComplete bên trong cho mỗi session (idempotent).
   const reg = getRegistry();
-  const toolNames = reg.FN_LIST.filter((fn: string) => !reg.OPEN.has(fn));
-  for (const fn of toolNames) {
-    if (!TOOL_DOCS[fn]) {
-      throw new Error(
-        `[MCP BOOT] Missing TOOL_DOCS entry for "${fn}". ` +
-          `Add description to mcp-server/tool-docs.ts before starting.`,
-      );
-    }
-  }
+  const toolNames = computeToolNames(reg);
+  assertDocsComplete(toolNames);
 
   // ─── 4. Transport selection ─────────────────────────────────
   const transportKind = (process.env.MCP_TRANSPORT || 'stdio').toLowerCase();
@@ -394,7 +352,7 @@ async function main(): Promise<void> {
   }
 
   // stdio fallback — identical to index.ts behaviour
-  const server = createServerInstance(ctx);
+  const server = await createServerInstance(ctx);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   warn(

@@ -27,7 +27,7 @@ Trạng thái: pending | in_progress | done | blocked.
 
 ## HỘI TỤ (PLAN_HOI_TU_01.09.md) — GPS per-wave
 - [x] **W0 FIX NỀN (01.09)**: race-condition kho (withTransaction + row-guard, tests 4/4) · recalcScTotals bước 8 QC206 thật (8/8) · docs/convergence 01-03 + **00_CAU_TRUC_HE_THONG.md** · gate tsc=0 + conformance **336/336** · commit W0. → Backlog: scVtUpd→W3.4, CRUD danh mục CV→W3.3.
-- [ ] **W1 KHO**: 2 tầng phiếu + tonKho + cu_hong/thanh_ly + autoXuat + gia lich su + GTTV asset + docs part4 (đang chạy: c=W1a, e=asset logic, d=http res/prompts fix). → mục tiêu ≥ 350 test.
+- [x] **W1 KHO (01.09) ✅** — phiếu 2 tầng `phieuList/phieuGet`+`phieu_id` legacy-tuync · `tonKho` (low/giaTri aggregate) · `vattu_gia_lich_su`+hooks tx · `ton_cu_hong`+`thanh_ly`+`autoGenCuHong`(chống trùng theo cặp) + FIX bug kế thừa `autoXuatSC` (1 PXX/đủ cầu) · GTTV asset (KH N+1) · UI kho 4 tabs + Playwright 4/4 · `server-core.ts` tách loop + HTTP res/prompts parity (`mcp_http` 5/5). **FN 43 / tools 39** dynamic · RBAC 141 còn xanh (coverage gap fn mới — đã ghi W2). Gates tsc=0 · **conformance 378/378 18 suites**.
 - [ ] **W2 DM**: dmList/Detail/Decide/FromSC/AutoBu + mua.duy + UI /kho/dm + docs part5.
 - [ ] **W3 XƯỞNG**: kanban + KPI 11 + thợ + sửa/xoá dòng (kèm scVtUpd) + snapshot + deadline + docs part6 + res/prompt sếp.
 - [ ] **W4 CROSS+AI**: admin 7fn + must_change + search/in A4/xlsx + workspace/PA1 + PWA + boss://dashboard + http rate-limit (kho max pool check).

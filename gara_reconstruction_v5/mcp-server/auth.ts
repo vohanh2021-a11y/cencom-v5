@@ -37,6 +37,22 @@ const READ_TOOLS = new Set<string>([
   'activityFeed',
   'dashboard',
   'report',
+  // W1a: phiếu 2 tầng — READ (META ['kho','xem']); thiếu 2 dòng này → MCP mặc định
+  // MCP_WRITE_TOOLS='' sẽ chặn 403 sai bản chất read-only của fn.
+  'phieuList',
+  'phieuGet',
+  // W1.6f: asset — READ (META ['xe','xem']); thiếu 2 dòng này thì MCP vẫn chạy
+  // (guard chỉ chặn khi doc.mode==='WRITE') nhưng READ_TOOLS phải phản ánh đúng
+  // bản chất fn — assetXe/assetReport không ghi gì, không cần allowlist.
+  'assetXe',
+  'assetReport',
+  // W1b-reg: tonKho/giaLichSuList — READ (META ['kho','xem']). Ghi rõ vào READ_TOOLS
+  // để phân loại đúng bản chất fn (cả hai không ghi gì) thay vì dựa guard doc.mode.
+  'tonKho',
+  'giaLichSuList',
+  // W1c-reg: thanhLyList — READ (META ['kho','xem']); bảng kê thuần đọc, không ghi
+  // gì (dòng thanh_ly do autoGen/xuatKho viết là chuyện nội bộ transaction).
+  'thanhLyList',
 ]);
 
 /**

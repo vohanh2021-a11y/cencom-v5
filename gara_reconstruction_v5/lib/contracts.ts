@@ -96,6 +96,49 @@ export const RPC_SCHEMAS: Record<string, z.ZodRawShape> = {
   dmNhap: {
     dm_id: z.string(),
   },
+
+  // W1a — phiếu nhập/xuất 2 tầng (đọc nhóm dòng nhap_xuat theo phieu_id)
+  phieuList: {
+    loai: z.string().optional(),
+    sc_id: z.string().optional(),
+    from: z.string().optional(),
+    to: z.string().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+  },
+  phieuGet: {
+    id: z.string(),
+  },
+
+  // W1b-reg — tồn kho + lịch sử giá (read-only; core tonKho/giaLichSuList validate
+  // lại lần nữa — trần 200/30 khớp nhau ở 2 tầng, không tin schema một phía).
+  tonKho: {
+    low_only: z.boolean().optional(),
+    page: z.number().int().min(1).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  },
+  giaLichSuList: {
+    // id đúng chuẩn VARCHAR(12) 'PREFIX-000001' — như assetXe
+    vattu_id: z.string().min(1).max(12),
+    limit: z.number().int().min(1).max(30).optional(),
+  },
+
+  // W1c-reg — bảng kê thanh lý (read-only; core thanhLyList validate lại lần nữa
+  // mọi field — trần 200 khớp nhau ở 2 tầng, không tin schema một phía).
+  // sc_id vẫn qua .passthrough() → core kiểm tra kiểu + tồn tại ở tầng 2.
+  thanhLyList: {
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'from phải dạng YYYY-MM-DD').optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'to phải dạng YYYY-MM-DD').optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    offset: z.number().int().min(0).optional(),
+  },
+
+  // asset.ts (W1.6f) — quyết toán tài sản, id đúng chuẩn VARCHAR(12) 'PREFIX-000001'
+  assetXe: {
+    id: z.string().min(1).max(12),
+  },
+  // assetReport không tham số — shape rỗng → getToolInputSchema = z.object({}).passthrough()
+  assetReport: {},
 };
 
 /**

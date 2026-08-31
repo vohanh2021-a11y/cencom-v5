@@ -88,10 +88,18 @@ CREATE TABLE nhap_xuat (
   nguoi    VARCHAR(12) REFERENCES users(id),
   ngay     TEXT,
   sc_id    VARCHAR(12) REFERENCES sc(id),
+  -- W1a phiếu 2 tầng (PLAN_HOI_TU_01.09): KHÔNG lập bảng phieu riêng.
+  --   phieu_id = id dòng đầu nhóm (dòng đầu tự tham chiếu); '' = dòng đơn kiểu cũ.
+  --   effective group id = COALESCE(NULLIF(phieu_id,''), id) — tương thích lùi 100%.
+  phieu_id TEXT DEFAULT '',
+  ncc      TEXT,                     -- header NCC (nullable — thêm theo chốt W1a)
   is_test  SMALLINT DEFAULT 0,
   deleted_at TEXT DEFAULT ''
 );
 CREATE INDEX idx_nx_vattu ON nhap_xuat(vattu_id);
+-- W1a: index tra theo phiếu + index biểu thức cho GROUP BY effective-group
+CREATE INDEX ix_nhap_xuat_phieu ON nhap_xuat(phieu_id);
+CREATE INDEX ix_nhap_xuat_eff ON nhap_xuat((COALESCE(NULLIF(phieu_id, ''), id)));
 
 -- ============ DM ============
 CREATE TABLE dm (
@@ -116,6 +124,70 @@ CREATE TABLE dm_chitiet (
   deleted_at TEXT DEFAULT ''
 );
 CREATE INDEX idx_dm_ct ON dm_chitiet(dm_id);
+
+-- ============ LỊCH SỬ GIÁ VẬT TƯ (W1b — port v3.6 `vattu_gia_lich_su`) ============
+-- v3.6 dùng cột `ten` + `nguon`; bản v5 chốt theo schema thật: tra cứu theo vattu_id
+-- (FK), `loai` whitelist 'nhap'|'dm' validate ở core (lib/core/kho.ts:ghiGiaLichSu),
+-- giữ dấu vết phiếu qua phieu_id (eff W1a). gia NUMERIC(16,0): mốc giá làm tròn đồng.
+CREATE TABLE IF NOT EXISTS vattu_gia_lich_su (
+  id         BIGSERIAL PRIMARY KEY,
+  vattu_id   TEXT NOT NULL REFERENCES vattu(id),
+  gia        NUMERIC(16,0) NOT NULL,
+  ncc        TEXT DEFAULT '',
+  loai       TEXT DEFAULT 'nhap',
+  phieu_id   TEXT DEFAULT '',
+  ngay       TEXT NOT NULL,
+  created_by TEXT DEFAULT '',
+  deleted_at TEXT DEFAULT '',
+  is_test    SMALLINT DEFAULT 0
+);
+-- Tra lịch sử theo vật tư mới nhất trước (ORDER ngay DESC, id DESC trong giaLichSuList)
+CREATE INDEX IF NOT EXISTS idx_vgl_vattu_ngay ON vattu_gia_lich_su(vattu_id, ngay DESC);
+
+-- ============ KHO HƯ HỎNG CÁCH LY + THANH LÝ (W1c — port v3.6 kho.js) ============
+-- v3.6 tương ứng: vattu.ton_cu_hong (kho.js:377,444,506), sc_vattu.tt
+-- (kho.js:285,309,383,448), phieu_nhap_thanhly → bảng v5 `thanh_ly` (theo chốt
+-- plan W1c). KHÁC v3.6 (GHI CHÚ LỆCH — có chủ đích):
+--  1) `nhap_xuat` KHÔNG thêm cột loai_nhap/loai_xuat: CHECK `loai` ('nhap'|'xuat')
+--     là contract sẵn có (phieuList/worker-c) → tôn trọng, không mở rộng CHECK.
+--     Nhánh hư hỏng phân biệt bằng MARKER `ly_do` = 'Thu hồi nội bộ' DO CORE ghi
+--     buộc (lib/core/kho.ts: THU_HOI_MARKER) — mọi phiếu nhập cu_hong đi qua core
+--     đều mang marker; autoXuatSC TRỪ các dòng marker này khỏi công thức đếm nhập
+--     (v3.6 đếm cả cu_hong → trừ ton không nguồn thu → lỗi tiềm ẩn, v5 sửa).
+--  2) `ton_cu_hong` là INTEGER (đếm linh kiện rời như coordinator chốt); core
+--     CHẶN so_luong không nguyên ở mọi nhánh cu_hong (không để PG làm tròn thầm lặng).
+--  3) `sc_vattu.tt` default 'can_mua' (khác v3.6 default ''); sc.ts W3 INSERT không
+--     nêu tt → default áp. autoXuatSC đếm cầu = tt IN ('can_mua','da_mua').
+--  4) `sc_vattu.loai_xu_ly` v5 CHƯA có (v3.6 có; v5 chỉ gắn loại xử lý ở sc_congviec,
+--     giữa CV↔VT không có cột link) → thêm cột rỗng để W3 sc.ts đổ dữ liệu;
+--     autoGenCuHong chấp nhận CẢ HAI spelling: 'thay_the' (v3.6) và 'thay_moi'
+--     (enum sc_congviec v5) — thường hóa lower/trim khi so khớp.
+ALTER TABLE vattu     ADD COLUMN IF NOT EXISTS ton_cu_hong INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sc_vattu  ADD COLUMN IF NOT EXISTS tt TEXT NOT NULL DEFAULT 'can_mua'
+                       CHECK (tt IN ('can_mua','da_mua','da_xuat','da_huy'));
+ALTER TABLE sc_vattu  ADD COLUMN IF NOT EXISTS loai_xu_ly TEXT NOT NULL DEFAULT '';
+
+-- Bảng thanh lý / thu hồi VT cũ hỏng (v3.6 phieu_nhap_thanhly, id LN-000001).
+-- so_luong NUMERIC(12,2) (LỆCH spec 'INTEGER': dòng thanh lý có thể sinh từ
+-- xuatKho THƯỜNG với ly_do='Thanh lý' — số lít/dung dịch là NUMERIC; ép INTEGER
+-- sẽ làm tròn thầm lặng mất dữ liệu). gia_thanh_ly NUMERIC(16,0) đồng bộ cột
+-- `gia` của vattu_gia_lich_su (làm tròn đồng).
+CREATE TABLE IF NOT EXISTS thanh_ly (
+  id            VARCHAR(12) PRIMARY KEY,
+  sc_id         VARCHAR(12) REFERENCES sc(id),
+  vattu_id      VARCHAR(12) REFERENCES vattu(id),
+  so_luong      NUMERIC(12,2) NOT NULL DEFAULT 0,
+  gia_thanh_ly  NUMERIC(16,0) NOT NULL DEFAULT 0,
+  ly_do         TEXT DEFAULT '',
+  ngay          TEXT,
+  is_test       SMALLINT DEFAULT 0,
+  deleted_at    TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_thanh_ly_sc   ON thanh_ly(sc_id);
+CREATE INDEX IF NOT EXISTS idx_thanh_ly_ngay ON thanh_ly(ngay);
+-- Chống trùng phiếu thu hồi (sc_id + vattu) phục vụ EXISTS của autoGenCuHong:
+CREATE INDEX IF NOT EXISTS ix_nhap_xuat_cuhong ON nhap_xuat(sc_id, vattu_id)
+  WHERE loai = 'nhap' AND deleted_at = '' AND COALESCE(ly_do, '') = 'Thu hồi nội bộ';
 
 -- ============ BÁO GIÁ (GIỮ — 8 bước) ============
 CREATE TABLE baogia (

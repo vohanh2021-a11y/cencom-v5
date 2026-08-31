@@ -97,7 +97,10 @@ describe('MCP parity & consistency', () => {
     const actual = tools.map((t) => t.name).sort();
 
     expect(actual).toEqual(expected);
-    expect(actual.length).toBe(32); // 47 total - 4 OPEN - 11 removed? = 32 expected
+    // W1.6f: SO DINH — không hardcode count. expected = FN_LIST \ OPEN (dòng trên);
+    // mọi fn mới thêm vào rpc.ts tự động được test, không ai phải sửa số nữa.
+    expect(actual.length).toBe(expected.length);
+    expect(expected.length).toBe(reg.FN_LIST.length - reg.OPEN.size);
   });
 
   test('version-consistency: server version === package.json version', async () => {

@@ -38,17 +38,16 @@
 | [x] W0.3 | Rà FN_LIST: v5 registry ĐỦ phạm vi v5 (GAP TĨNH ktSave/chỉ là của v4); `dmFromBaoGia` xác nhận KHÔNG port | `lib/rpc.ts` (không đổi) | ✅ |
 | ➕ BACKLOG phat-sinh-tu-W0 | (a) `scAddVatTu` không nhận đơn giá → `gd_dk=0` → RPC **scVtUpd** vào W3.4; (b) CRUD danh mục công việc (v3.6 `congViec*`) vào W3.3; (c) pool max=10: theo dõi W4 nếu batch >10 tx; (d) audit trong tx (fail→rollback cả thao tác — an toàn hơn); (e) deadlock dmNhap 2 DM chéo: PG tự abort + client retry (chấp nhận) | W1/W3/W4 | (ghi nhận 01.09) |
 
-### WAVE 1 — TRỤC ③ KHO (chạy trước — nền cho mua sắm) (3–4 ngày)
+### WAVE 1 — TRỤC ③ KHO — ✅ HOÀN THÀNH (01.09; gate tsc=0, conformance 378/378 18 suites, Playwright kho 4/4)
 | Task | Việc | Files | Gate |
 |---|---|---|---|
-| W1.1 | **Phiếu nhập/xuất 2 tầng** (1 phiếu – nhiều dòng): port `phNhapCreate/Get/List`, `phXuatCreate/Get/List` | `lib/core/kho.ts`, `db/schema.sql` + migration | test `kho_phieu2tang.test.ts` |
-| W1.2 | **tonKho**: bảng kê tổng hợp + cờ `low` (ton<ton_min) + số ngày thiếu + `giaTriTonKho` | `lib/core/kho.ts` | test + MCP tool tự sinh |
-| W1.3 | **Kho hư hỏng**: `ton_cu_hong` cách ly + `autoGenCuHong` (thu hồi VT thay thế, chống trùng) + `thanhLyList` + bảng `thanh_ly` | `lib/core/kho.ts`, schema | test: xuất thanh lý KHÔNG đụng tồn dùng |
-| W1.4 | **autoXuatSC**: SC đủ vật tư đã nhập → tự sinh đúng 1 PXX, `sc_vattu→da_xuat` | `lib/core/kho.ts` | test chuỗi nhập→xuất liên thông |
-| W1.5 | **Lịch sử giá NCC**: bảng `vattu_gia_lich_su` + `ghiGiaLichSu/giaLichSuList` (mỗi lần nhập ghi 1 mốc) | schema + `kho.ts` | test |
-| W1.6 | **GTTV khấu hao**: `assetXe/assetReport` (nguyên giá − khấu hao đường thẳng + chi phí tích luỹ) | `lib/core/asset.ts` (mới) + schema | test khấu hao |
-| W1.7 | **UI Kho**: `/kho` nâng cấp — tab Tồn kho (đỏ ton_min), Phiếu 2 tầng, Thanh lý, Giá trị tồn | `app/(app)/kho/page.tsx` | Playwright smoke |
-| W1.8 | **MCP**: tools tự sinh (W1.1–W1.6) + resource `kho://tai-san/{xe_id}` (GTTV xe) + tool-docs part4 | `tool-docs.part4.ts`, `resources.ts` | docs-gate throw nếu thiếu |
+| [x] W1.1 | **Phiếu 2 tầng**: `nhap_xuat.phieu_id` + group-by-eff (COALESCE), `phieuList/phieuGet` (filter whiltelist + phân trang + legacy tương thích) | `schema.sql`, `kho.ts`, rpc/meta/contracts/part4 + docs | kho_phieu2tang 5/5; sửa luôn mcp.test→động |
+| [x] W1.2 | **tonKho** (low/thieu/ton_cu_hong/giaTriTonKho aggregate + limit ≤200) + [x] W1.5 **vattu_gia_lich_su** + `ghiGiaLichSu` hook `nhapKho/dmNhap` (tx) + `giaLichSuList` | `schema.sql`, `kho.ts`, rpc | kho_tonkho 7/7; dedupe liên tiếp |
+| [x] W1.3 | **cu_hong**: `ton_cu_hong` + `thanh_ly` + row-guard 'Không đủ tồn hư hỏng' + `autoGenCuHong` (chống trùng theo cap sc/vattu) + `thanhLyList`; [x] W1.4 **autoXuatSC** (1 PXX khi đủ; FIX BUG kế thừa v3.6 đếm cả phiếu thu hồi) | `schema.sql`, `kho.ts`, meta | kho_cuhong 6/6. Auto* chưa expose RPC — hook vào scHoanThanh W3 |
+| [x] W1.6 | **GTTV asset**: `assetXe/assetReport` (KH không N+1; fallback khau_hao_nam=10) | `lib/core/asset.ts` mới + rpc META `['xe','xem']` (module asset chưa có trong MATRIX → dùng xe.xem) | asset_gttv 12/12 (6 core + 6 HTTP RBAC) |
+| [x] W1.7 | **UI Kho** tab 2 tầng (Phiếu group/expandable, Tồn-kho badge đỏ+famili fallback, form nhap/xuat loai cu_hong+thanly, realtime EventSource inline — FIX `useRealtime` import pg→500) | `app/(app)/kho/page.tsx` | Playwright 4/4 |
+| [x] W1.8 | **MCP**: docs part4 + `server-core.ts` (tách loop trùng) + HTTP resources/prompts parity + `mcp_http.test` 5/5; READ_TOOLS cập nhật | `mcp-server/*` | mcp stdio regression 18/18, tools=40 động |
+→ Backlog W1→W3: hook autoGen/autoXuat vào scHoanThanh; RBAC_FNS coverage mới (11+ fn); e2e comment/định kỳ; UI cột toán lý raw keys.
 
 ### WAVE 2 — TRỤC ② MUA SẮM DM (3–4 ngày, sau W1)
 | Task | Việc | Files | Gate |

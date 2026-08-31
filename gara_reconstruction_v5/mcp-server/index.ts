@@ -20,13 +20,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getRegistry } from '../lib/rpc';
 import { buildApi } from '../lib/api';
-import { resolveActor, isWriteAllowed, auditMcpCall } from './auth';
-import { TOOL_DOCS } from './tool-docs';
-import { getToolInputSchema } from '../lib/contracts';
+import { resolveActor } from './auth';
+import { registerAll } from './server-core';
 import { registerResources, registerPrompts } from './resources';
 
 /* ──────────────────────────────────────────────────────────────
  * Main — async to handle resolveActor() + server.connect()
+ *
+ * W1.8a: vòng đăng ký tool chuyển nguyên vẹn vào server-core.registerAll
+ * (HTTP mode http.ts dùng CÙNG hàm — chống fork logic, điểm 3.4).
  * ────────────────────────────────────────────────────────────── */
 
 async function main() {
@@ -41,89 +43,14 @@ async function main() {
   const api = buildApi(actor);
   const reg = getRegistry();
 
-  // ─── 3. Compute tool list: FN_LIST \ OPEN, must have docs ───
-  const toolNames = reg.FN_LIST.filter((fn) => !reg.OPEN.has(fn));
-
-  // Docs-completeness gate: missing docs → hard fail at startup
-  for (const fn of toolNames) {
-    if (!TOOL_DOCS[fn]) {
-      throw new Error(
-        `[MCP BOOT] Missing TOOL_DOCS entry for "${fn}". ` +
-          `Add description to mcp-server/tool-docs.ts before starting.`,
-      );
-    }
-  }
-
   // ─── 4. Build MCP server ────────────────────────────────────
   const server = new McpServer({
     name: 'cencom-gara-v5',
     version: VERSION,
   });
 
-  // ─── 5. Register every tool from registry ───────────────────
-  //
-  // APPROACH (b): registerTool with z.record(z.unknown()) as inputSchema.
-  // Chosen because:
-  //   - z.object({}).passthrough() causes TS2589 (deep type recursion) with SDK generics
-  //   - registerTool accepts AnySchema (which z.record() satisfies)
-  //   - Cast bypasses generic depth limit while RBAC + validation happen in core layer
-  //
-  for (const fn of toolNames) {
-    const doc = TOOL_DOCS[fn];
-    const meta = reg.META[fn];
-    const perm = meta ? meta.join('.') : 'UNKNOWN';
-    const mode = doc.mode;
-
-    const description =
-      `[vi] ${doc.descVi} | [en] ${doc.descEn} | perm: ${perm} | mode: ${mode}`;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const handler = async (args: Record<string, unknown>): Promise<any> => {
-      // WRITE guard: check MCP_WRITE_TOOLS allowlist BEFORE calling handler
-      if (doc.mode === 'WRITE' && !isWriteAllowed(fn)) {
-        await auditMcpCall(fn, actor, false);
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `403 write tool disabled: ${fn}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      try {
-        // Call core handler directly — RBAC is enforced inside handlers
-        const result = await reg.HANDLERS[fn](api, args || {});
-        await auditMcpCall(fn, actor, true);
-        return {
-          content: [
-            // Guard: JSON.stringify(undefined) returns undefined (not string),
-            // which fails SDK's CallToolResultSchema validation.
-            { type: 'text' as const, text: JSON.stringify(result ?? null, null, 2) },
-          ],
-        };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        await auditMcpCall(fn, actor, false);
-        return {
-          content: [
-            { type: 'text' as const, text: `ERROR: ${message}` },
-          ],
-          isError: true,
-        };
-      }
-    };
-
-    // Register with cast to bypass SDK generic depth limit
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (server.registerTool as any)(
-      fn,
-      { title: doc.title, description, inputSchema: getToolInputSchema(fn) },
-      handler,
-    );
-  }
+  // ─── 5. Register every tool from registry (docs-gate inside) ──
+  const toolNames = await registerAll(server, api, reg, actor);
 
   // ─── 5b. Register MCP resources & prompts (TM7 / M2) ──────────
   // Resource templates sc://{sc_id}, xe://{xe_id} + prompt QC206 guide.
