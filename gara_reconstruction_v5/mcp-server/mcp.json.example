@@ -1,0 +1,25 @@
+{
+  "_huong_dan": "File VIDU - copy entry can dung vao config cua AI host (xoa _huong_dan truoc khi dung). Stdio: dung cho AI host chay CUNG MAY. HTTP: dung cho AI host chay MAY KHAC trong LAN. Xem chi tiet: gara_reconstruction_v5/mcp-server/README.md",
+  "mcpServers": {
+    "cencom-gara-v5": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "E:/APP-LAPTOP-SYNC/cencomOS_gara_4.0_supa/gara_reconstruction_v5/mcp-server/index.ts"
+      ],
+      "env": {
+        "MCP_USER": "mcp-bot",
+        "MCP_PASS": "DOI_MAT_KHAU_TAI_DAY",
+        "MCP_ROLE": "giamdoc",
+        "MCP_WRITE_TOOLS": ""
+      }
+    },
+    "cencom-gara-v5-lan": {
+      "type": "http",
+      "url": "https://<ip-server-lan>/mcp",
+      "headers": {
+        "Authorization": "Bearer <MCP_API_KEY>"
+      }
+    }
+  }
+}

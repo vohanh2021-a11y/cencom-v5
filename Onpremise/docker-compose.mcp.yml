@@ -1,0 +1,57 @@
+# =============================================================================
+# Onpremise/docker-compose.mcp.yml — MCP server (Streamable HTTP) OVERRIDE
+# TM8 (M2): standalone compose file — KHONG sua docker-compose.yml goc.
+#
+# Dung:
+#   docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d cencom-mcp
+#
+# expose: 127.0.0.1:3001 (host loopback) — client LAN ngoai vi goi qua
+# nginx (/mcp), xem nginx/mcp.conf. Client noi bo docker network goi thang
+# http://cencom-mcp:3001/mcp.
+# =============================================================================
+
+services:
+  # ============== MCP Server (Streamable HTTP, tsx runtime) ==============
+  cencom-mcp:
+    container_name: cencom-mcp
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      # Mount source repo trực tiếp (dev/LAN style — khong build image rieng)
+      - ../gara_reconstruction_v5:/app
+      # Named volume CHE /app/node_modules:
+      #  1) npm ci trong container (Linux) se de len host Windows node_modules
+      #     (esbuild/tsx phuc thuoc nen => run khi bind-mount thang).
+      #  2) Volume giu deps Linux-only + toc do khoi dong lai.
+      - mcp_node_modules:/app/node_modules
+    # tsx nam o devDependencies → sau `--omit=dev` no BI LOAI; dòng cài bổ
+    # sung --no-save tsx giữ đúng command theo spec (npm ci/install --omit=dev
+    # + npx tsx) nhưng tu-heal duoc tsx cho production install.
+    command: >
+      sh -c "npm ci --omit=dev || npm install --omit=dev;
+      [ -x node_modules/.bin/tsx ] || npm install --no-save tsx@^4.19.1;
+      npx tsx mcp-server/http.ts"
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HTTP_PORT: "3001"
+      # Bearer edge auth — BAT BUOC phai set, server fail-closed 401 neu trong
+      MCP_API_KEY: ${MCP_API_KEY}
+      # Service-account login for audit/RBAC (khop quickstart tren)
+      MCP_USER: ${MCP_USER:-mcp-bot}
+      MCP_PASS: ${MCP_PASS}
+      MCP_ROLE: ${MCP_ROLE:-giamdoc}
+      MCP_WRITE_TOOLS: ${MCP_WRITE_TOOLS:-}
+      # DB: cung mang docker-network voi supabase-db (service DNS)
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-cencom_pass_2026}@supabase-db:5432/${DB_NAME:-cencom_os}
+      SESSION_SECRET: ${JWT_SECRET:-cencom_secret}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    #bindings 127.0.0.1-only: khong lo 3001 ra LAN; nginx la loi vao duy nhat
+    ports:
+      - "127.0.0.1:3001:3001"
+
+# ============== Named volume for Linux node_modules (xem giai thich tren) ====
+volumes:
+  mcp_node_modules:

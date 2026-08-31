@@ -23,6 +23,7 @@ import { buildApi } from '../lib/api';
 import { resolveActor, isWriteAllowed, auditMcpCall } from './auth';
 import { TOOL_DOCS } from './tool-docs';
 import { getToolInputSchema } from '../lib/contracts';
+import { registerResources, registerPrompts } from './resources';
 
 /* ──────────────────────────────────────────────────────────────
  * Main — async to handle resolveActor() + server.connect()
@@ -123,6 +124,12 @@ async function main() {
       handler,
     );
   }
+
+  // ─── 5b. Register MCP resources & prompts (TM7 / M2) ──────────
+  // Resource templates sc://{sc_id}, xe://{xe_id} + prompt QC206 guide.
+  // RBAC vẫn do core handlers (checkHoSo/scGet/xeGet) trọng tài.
+  await registerResources(server, api);
+  await registerPrompts(server);
 
   // ─── 6. Connect & start ─────────────────────────────────────
   const transport = new StdioServerTransport();

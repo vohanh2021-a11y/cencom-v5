@@ -120,7 +120,65 @@ MCP cencom-gara-v5 v5.0.0 ready (32 tools, actor=admin role=giamdoc write=)
 
 ---
 
+## LAN / HTTP mode (Streamable HTTP — TM8)
+
+Bên cạnh stdio (mỗi AI host spawn 1 process local), `http.ts` chạy **một server MCP dùng chung trên LAN**: cùng 32 tool, cùng RBAC/audit/WRITE-guard như `index.ts`, chỉ khác transport = **MCP Streamable HTTP**.
+
+```bash
+# Linux/macOS/WSL
+MCP_TRANSPORT=http MCP_HTTP_PORT=3001 MCP_API_KEY=<bearer-key-manh> npx tsx mcp-server/http.ts
+
+# Windows PowerShell
+$env:MCP_TRANSPORT="http"; $env:MCP_HTTP_PORT="3001"; $env:MCP_API_KEY="<bearer-key-manh>"
+npx tsx mcp-server/http.ts
+```
+
+- Endpoint: **`http://<host>:3001/mcp`** (bind `MCP_HTTP_HOST`, mặc định `0.0.0.0`).
+- **Bắt buộc** `Authorization: Bearer <MCP_API_KEY>` trên **mọi request**; `MCP_API_KEY` chưa set → server **fail-closed** (mọi traffic 401). So sánh bearer constant-time.
+- Session: stateful theo chuẩn MCP (`Mcp-Session-Id`); server trả **JSON response** (`enableJsonResponse`), hợp lệ cho mọi MCP client chuẩn. POST phải có `Accept: application/json, text/event-stream` (SDK enforce — client SDK tự động gửi).
+- `MCP_TRANSPORT` unset hoặc `stdio` → hành xử y hệt `index.ts` (StdioServerTransport).
+
+### Client (opencode / Cursor / Claude Desktop remote)
+
+```json
+{
+  "mcpServers": {
+    "cencom-gara-v5": {
+      "type": "remote",
+      "url": "http://<server-host>:3001/mcp",
+      "headers": { "Authorization": "Bearer <MCP_API_KEY>" }
+    }
+  }
+}
+```
+
+(Client SDK StreamableHTTP — vd TS: `new StreamableHTTPClientTransport(new URL('http://<host>:3001/mcp'), { requestInit: { headers: { Authorization: 'Bearer <key>' } } })`.)
+
+### Onpremise (Docker + nginx)
+
+```bash
+cd Onpremise
+# MCP_API_KEY, MCP_PASS, DB_PASSWORD,... đặt trong shell/.env cạnh docker-compose.yml
+docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d cencom-mcp
+```
+
+- `docker-compose.mcp.yml` = override **file mới** (không sửa compose gốc): service `cencom-mcp`, port chỉ bind `127.0.0.1:3001` trong container network.
+- Mở đường LAN/HTTPS qua nginx: chép cấu hình trong `Onpremise/nginx/mcp.conf` — thêm `include /etc/nginx/mcp.conf;` vào server block 443 của `nginx.conf` và mount file (kèm envsubst để nginx inject bearer). Xem comment từng bước trong `mcp.conf`.
+- Health nội bộ nhanh:
+
+```bash
+curl -s -X POST http://localhost:3001/mcp \
+  -H "Authorization: Bearer <MCP_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+---
+
 ## 4. Cấu hình AI Host
+
+> **File mẫu copy-paste được:** [`mcp.json.example`](./mcp.json.example) — đã dùng đường dẫn tuyệt đối, gồm cả bản **stdio** (cùng máy) + **HTTP LAN** (máy khác); điền `MCP_PASS`/`MCP_API_KEY` thật rồi xóa key `_huong_dan` trước khi dùng.
 
 ### opencode (`opencode.json`)
 
@@ -225,6 +283,7 @@ Thêm test case vào `tests/conformance/rpc.test.ts` (hoặc file test tương �
 ```
 mcp-server/
 ├── index.ts              ← MCP stdio server (main)
+├── http.ts               ← MCP transport: Streamable HTTP (LAN) + stdio fallback
 ├── auth.ts               ← Service-account auth + WRITE guard + audit
 ├── env.ts                ← Load .env.mcp + fallback
 ├── tool-docs.ts          ← Aggregate tool descriptions (vi/en)
