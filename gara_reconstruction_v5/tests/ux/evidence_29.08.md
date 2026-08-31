@@ -48,6 +48,20 @@ Dự án: `gara_reconstruction_v5` (CencomOS Gara v5.0) — tính năng **Hồ s
 - `scripts/test-conformance.mjs`, script `test:conformance` (mới — CI gate)
 - `lib/core/ho_so.ts`, `baogia.ts`, `sc.ts`, `lib/rpc.ts`, `middleware.ts`, `app/(app)/sc/page.tsx` (T5 hardening)
 
+### MCP Server (31.08)
+
+| Hạng mục | Kết quả | Trạng thái |
+|---|---|---|
+| Scaffold | `mcp-server/index.ts` + `auth.ts` + `tool-docs.ts` (3 part files, song ngữ vi/en) | ✅ |
+| Auto-generate tools | Tool tự sinh từ `lib/rpc.ts` registry — 32/32 fn (14 READ + 18 WRITE), 4 OPEN loại khỏi MCP | ✅ |
+| Auth service-account | `MCP_USER/MCP_PASS/MCP_ROLE` qua `.env.mcp`, fallback `.env.local` cho `DATABASE_URL/SESSION_SECRET` | ✅ |
+| Write-allowlist | `MCP_WRITE_TOOLS=''` mặc định = chỉ đọc. `isWriteAllowed()` chặn WRITE trước khi chạm core | ✅ |
+| Audit | Mọi lệnh ghi `activity_log` với `channel=mcp`, bao gồm fn/actor/role/result | ✅ |
+| Docs song ngữ | `tool-docs.part1-3.ts` — mô tả vi/en cho 32 tool + example args | ✅ |
+| Smoke test | 32 tools (version 5.0.0), startup docs-completeness gate | ✅ |
+| Conformance | 289/289 → **296/296** xanh (thêm 7 MCP test) | ✅ |
+| Status M1 | **HOÀN THÀNH** | ✅ |
+
 ## Rủi ro còn lại & đề xuất
 
 1. **Nâng Next.js 14 → 16** (riêng biệt, có test regression) để dọn 21 CVE.

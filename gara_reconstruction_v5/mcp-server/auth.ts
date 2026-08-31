@@ -1,0 +1,206 @@
+import fs from 'fs';
+import path from 'path';
+import { db } from '../lib/db';
+import { login } from '../lib/auth';
+import { logActivity } from '../lib/core/activity';
+import type { Actor } from '../lib/types';
+
+/**
+ * MCP Server Authentication Module
+ * 
+ * Service-account authentication for MCP stdio server.
+ * Imports core directly (no HTTP) — runs as separate tsx process.
+ * All calls audited with channel='mcp'.
+ */
+
+// Module-level cache for resolved actor
+let cachedActor: Actor | null = null;
+
+/**
+ * Read set: tool names that are considered READ operations.
+ * All other tools in FN_LIST are WRITE and require explicit allowlist.
+ */
+const READ_TOOLS = new Set<string>([
+  'currentUser',
+  'appInfo',
+  'xeList',
+  'xeGet',
+  'scList',
+  'scGet',
+  'vattuList',
+  'vattuGet',
+  'baogiaList',
+  'baogiaGet',
+  'hoSoGet',
+  'hoSoList',
+  'hoSoCheck',
+  'activityFeed',
+  'dashboard',
+  'report',
+]);
+
+/**
+ * Load MCP environment from mcp-server/.env.mcp with UTF-16LE BOM support,
+ * then fall back to ../.env.local for missing keys.
+ * 
+ * Env keys:
+ * - MCP_USER (required)
+ * - MCP_PASS (required)
+ * - MCP_ROLE (optional, default: 'giamdoc')
+ * - MCP_WRITE_TOOLS (optional, comma-separated, default: '')
+ * - DATABASE_URL (fallback from .env.local)
+ * - SESSION_SECRET (fallback from .env.local)
+ */
+export function loadMcpEnv(): void {
+  const mcpEnvPath = path.join(__dirname, '.env.mcp');
+  const rootEnvPath = path.join(__dirname, '..', '.env.local');
+
+  // Load .env.mcp first (if exists)
+  if (fs.existsSync(mcpEnvPath)) {
+    loadEnvFile(mcpEnvPath);
+  }
+
+  // Fallback to root .env.local for missing keys
+  if (fs.existsSync(rootEnvPath)) {
+    loadEnvFile(rootEnvPath, true); // only set if not already set
+  }
+
+  // Default MCP_ROLE if not set
+  if (!process.env.MCP_ROLE) {
+    process.env.MCP_ROLE = 'giamdoc';
+  }
+
+  // Default MCP_WRITE_TOOLS if not set
+  if (process.env.MCP_WRITE_TOOLS === undefined) {
+    process.env.MCP_WRITE_TOOLS = '';
+  }
+}
+
+/**
+ * Load a single .env file with encoding detection (UTF-16LE BOM, UTF-16BE, UTF-8).
+ * @param filePath Path to .env file
+ * @param onlyIfMissing If true, only set env vars that are not already set
+ */
+function loadEnvFile(filePath: string, onlyIfMissing = false): void {
+  const buffer = fs.readFileSync(filePath);
+  let content: string;
+
+  // Detect encoding from BOM
+  if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) {
+    // UTF-16LE with BOM
+    content = buffer.toString('utf16le').slice(1); // Remove BOM
+  } else if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) {
+    // UTF-16BE with BOM
+    content = buffer.slice(2).swap16().toString('utf16le'); // Swap to LE, skip BOM
+  } else {
+    // UTF-8 (no BOM or other)
+    content = buffer.toString('utf8');
+  }
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const value = trimmed.slice(eqIdx + 1).trim();
+    if (key && (!onlyIfMissing || !process.env[key])) {
+      process.env[key] = value;
+    }
+  }
+}
+
+/**
+ * Resolve and cache the MCP service account actor.
+ * Uses login() from lib/auth with MCP_USER/MCP_PASS.
+ * Validates MCP_ROLE matches DB role if set.
+ * 
+ * @returns Actor object with id, name, role
+ * @throws Error if login fails or role mismatch
+ */
+export async function resolveActor(): Promise<Actor> {
+  if (cachedActor) {
+    return cachedActor;
+  }
+
+  const user = process.env.MCP_USER;
+  const pass = process.env.MCP_PASS;
+  const expectedRole = process.env.MCP_ROLE;
+
+  if (!user || !pass) {
+    throw new Error('MCP auth: MCP_USER and MCP_PASS must be set in .env.mcp');
+  }
+
+  const actor = await login(db, user, pass);
+
+  if (!actor) {
+    throw new Error('MCP auth: login failed');
+  }
+
+  if (expectedRole && expectedRole !== actor.role) {
+    throw new Error(`MCP auth: role mismatch — expected '${expectedRole}', got '${actor.role}'`);
+  }
+
+  cachedActor = actor;
+  return actor;
+}
+
+/**
+ * Check if a tool/function is allowed for WRITE operations.
+ * 
+ * READ tools (in READ_TOOLS set): always allowed.
+ * WRITE tools (all others): only allowed if listed in MCP_WRITE_TOOLS env (CSV).
+ * Default MCP_WRITE_TOOLS is empty → all write tools blocked (read-only mode).
+ * 
+ * @param fnName Function/tool name from FN_LIST
+ * @returns true if allowed, false if blocked
+ */
+export function isWriteAllowed(fnName: string): boolean {
+  // READ tools always allowed
+  if (READ_TOOLS.has(fnName)) {
+    return true;
+  }
+
+  // All other tools are WRITE — check allowlist
+  const writeToolsEnv = process.env.MCP_WRITE_TOOLS || '';
+  if (!writeToolsEnv.trim()) {
+    return false; // Empty allowlist = read-only mode
+  }
+
+  const allowedWriteTools = writeToolsEnv
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  return allowedWriteTools.includes(fnName);
+}
+
+/**
+ * Audit an MCP tool call to activity_log with channel='mcp'.
+ * 
+ * @param fnName Function/tool name called
+ * @param actor Actor who made the call
+ * @param ok true if call succeeded/allowed, false if denied
+ */
+export async function auditMcpCall(fnName: string, actor: Actor, ok: boolean): Promise<void> {
+  const result = ok ? 'ok' : 'denied';
+  const message = `fn=${fnName} actor=${actor.name} role=${actor.role} channel=mcp result=${result}`;
+
+  await logActivity(db, {
+    actor_id: actor.id,
+    actor_role: actor.role,
+    hanh_dong: 'mcp_call',
+    doi_tuong: 'mcp_tool',
+    doi_tuong_id: fnName,
+    mo_ta: message,
+    is_test: 0,
+  });
+}
+
+/**
+ * Clear the cached actor (useful for testing).
+ * Not exported for production use — internal only.
+ */
+export function _clearActorCache(): void {
+  cachedActor = null;
+}

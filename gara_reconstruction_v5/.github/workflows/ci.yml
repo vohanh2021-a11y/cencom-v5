@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  mcp-gate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cencom
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d cencom"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/cencom
+      SESSION_SECRET: test-secret-ci
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: gara_reconstruction_v5/package-lock.json
+
+      - name: Install dependencies
+        working-directory: gara_reconstruction_v5
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Run version consistency check
+        working-directory: gara_reconstruction_v5
+        run: node ../scripts/version-consistency.mjs
+
+      - name: Run MCP conformance tests
+        working-directory: gara_reconstruction_v5
+        run: npx jest tests/conformance/mcp.test.ts --runInBand --forceExit

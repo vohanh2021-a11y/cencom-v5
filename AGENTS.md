@@ -42,6 +42,10 @@ Hệ thống quản lý & giám sát xe đầu kéo — **bản cloud v4.0**: Ne
 
 Bàn giao code PHAI kem muc "⚠️ Lưu ý hệ thống sản xuất (Production Check)" (4 câu: con thieu gi / rui ro dau / da chay test chua / de xuat tiep theo). Luôn chạy `tsc --noEmit` + conformance trước khi bàn giao; nếu thiếu môi trường, nói rõ CÁCH CHẠY.
 
+## MCP Server
+
+MCP server stdio (`mcp-server/`) — AI host (Claude Desktop, opencode, Cursor...) kết nối qua stdio, gọi tool tên **đồng nhất** fn RPC. Mặc định **read-only** (`MCP_WRITE_TOOLS=''`), bật ghi bằng allowlist. Mọi lệnh ghi audit `channel=mcp` vào `activity_log`. Chi tiết: [`gara_reconstruction_v5/mcp-server/README.md`](gara_reconstruction_v5/mcp-server/README.md).
+
 ## Tài liệu nguồn (đọc khi cần)
 
 - `E:\APP-LAPTOP-SYNC\CencomOS-Garage-v3.6\docs\rewrite\01_DOMAIN.md` … `07_PARITY_TESTS.md` — SPEC gốc.

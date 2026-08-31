@@ -46,7 +46,7 @@ export const FN_LIST: string[] = [
   'report',
 ];
 
-const OPEN: Set<string> = new Set(['login', 'logout', 'currentUser', 'appInfo']);
+export const OPEN: Set<string> = new Set(['login', 'logout', 'currentUser', 'appInfo']);
 
 const META: Record<string, [string, string]> = {
   xeList: ['xe', 'xem'],
@@ -136,6 +136,14 @@ const HANDLERS: Record<string, (_api: Api, _args: any) => Promise<any>> = {
   report: (_api, _a) => Promise.resolve({ ok: true }),
 };
 /* eslint-enable no-unused-vars */
+
+/**
+ * Expose the full RPC registry for MCP server and testing.
+ * Returns read-only references — callers must NOT mutate.
+ */
+export function getRegistry() {
+  return { FN_LIST, META, HANDLERS, OPEN };
+}
 
 export async function dispatch(api: Api, fn: string, args: any): Promise<any> {
   if (!HANDLERS[fn]) throw new Error('Unknown fn: ' + fn);

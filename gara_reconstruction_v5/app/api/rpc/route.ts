@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '../../../lib/db';
 import { getCurrentActor, isSameOrigin, SESSION_COOKIE } from '../../../lib/auth';
-import { can } from '../../../lib/perm';
 import { dispatch } from '../../../lib/rpc';
+import { buildApi } from '../../../lib/api';
 import { createLogger } from '../../../lib/logger';
 import { inc } from '../../../lib/metrics';
 
@@ -26,7 +25,7 @@ export async function POST(req: NextRequest) {
   }
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const actor = getCurrentActor(token);
-  const api = { db, auth: { current: () => actor }, perm: { can: (d: any, r: string, m: string, f: string) => can(d, r, m, f) } };
+  const api = buildApi(actor);
   try {
     const result = await dispatch(api, fn, args);
     inc('http_requests_total', { method: 'POST', path: '/api/rpc', status: '200' });
