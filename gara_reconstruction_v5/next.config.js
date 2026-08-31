@@ -62,6 +62,12 @@ module.exports = {
   reactStrictMode: true,
   output: 'standalone',
 
+  // ★ Mitigation CVE Next.js Image Optimizer DoS (GHSA-9g9p-9gw9-jx7f, GHSA-h64f-5h5j-jqjh, GHSA-3x4c-7xq6-9pq8)
+  // Tắt Image Optimization API trên self-hosted để loại bỏ vecto tấn công DoS qua remotePatterns / disk cache.
+  images: {
+    unoptimized: true,
+  },
+
   experimental: {
     instrumentationHook: true,
   },

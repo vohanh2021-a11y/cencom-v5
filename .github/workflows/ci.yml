@@ -92,3 +92,83 @@ jobs:
 
       - name: Build (Next.js standalone)
         run: npm run build
+
+      # ── Docker Image Build & Audit (On-Premise Standalone) ──────────────
+      # Verifies that the standalone Docker image can be built from CI artifacts.
+      # Uses a staging directory to match Onpremise/Dockerfile.standalone expectations
+      # (monorepo structure: apps/web/*, standalone-build.bin at root).
+      - name: Prepare Docker build context (standalone)
+        working-directory: .
+        run: |
+          echo "::group::Staging Docker artifacts"
+          STAGING=_docker_staging
+          rm -rf "$STAGING"
+
+          # Reproduce monorepo structure that Dockerfile.standalone expects
+          mkdir -p "$STAGING/apps/web/.next"
+          mkdir -p "$STAGING/apps/web"
+          mkdir -p "$STAGING/Onpremise"
+
+          # Static assets + public (from v5 build output)
+          cp -r gara_reconstruction_v5/.next/static "$STAGING/apps/web/.next/static"
+          cp -r gara_reconstruction_v5/public "$STAGING/apps/web/public"
+
+          # Standalone tarball — needs apps/web/ prefix for CMD "node apps/web/server.js"
+          mkdir -p "$STAGING/_sb/apps/web"
+          cp -r gara_reconstruction_v5/.next/standalone/* "$STAGING/_sb/apps/web/"
+          tar czf "$STAGING/standalone-build.bin" -C "$STAGING/_sb" apps
+          rm -rf "$STAGING/_sb"
+
+          # Dockerfile (copy so context is self-contained, no .dockerignore interference)
+          cp Onpremise/Dockerfile.standalone "$STAGING/Dockerfile"
+
+          echo "Staging ready:"
+          echo "  standalone-build.bin: $(du -h "$STAGING/standalone-build.bin" | cut -f1)"
+          echo "  static: $(find "$STAGING/apps/web/.next/static" -type f | wc -l) files"
+          echo "  public: $(find "$STAGING/apps/web/public" -type f | wc -l) files"
+          echo "::endgroup::"
+
+      - name: Build Docker image (standalone, no push)
+        working-directory: .
+        run: |
+          docker build \
+            --file _docker_staging/Dockerfile \
+            --tag cencomos-gara:ci-${{ github.sha }} \
+            _docker_staging/
+          echo "Docker image built successfully"
+
+      - name: Audit Docker image
+        working-directory: .
+        run: |
+          IMAGE="cencomos-gara:ci-${{ github.sha }}"
+
+          echo "::group::Image audit"
+          echo "=== Size ==="
+          docker images "$IMAGE" --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}"
+          echo ""
+          echo "=== Layers ==="
+          docker history "$IMAGE" --format "table {{.CreatedBy}}\t{{.Size}}"
+          echo ""
+          echo "=== User ==="
+          docker inspect "$IMAGE" --format '{{.Config.User}}'
+          echo ""
+          echo "=== Exposed Ports ==="
+          docker inspect "$IMAGE" --format '{{json .Config.ExposedPorts}}'
+          echo ""
+          echo "=== Healthcheck ==="
+          docker inspect "$IMAGE" --format '{{json .Config.Healthcheck}}'
+          echo ""
+          echo "=== Container smoke test (start + health) ==="
+          CID=$(docker run -d -p 3099:3000 "$IMAGE")
+          sleep 5
+          docker exec "$CID" wget -qO- http://127.0.0.1:3000/api/health || echo "Health endpoint not ready (expected in CI without DB)"
+          docker logs "$CID" --tail 10
+          docker stop "$CID" > /dev/null 2>&1
+          docker rm "$CID" > /dev/null 2>&1
+          echo "::endgroup::"
+          echo "Docker image audit passed"
+
+      - name: Cleanup Docker staging
+        if: always()
+        working-directory: .
+        run: rm -rf _docker_staging

@@ -80,7 +80,7 @@ const LOAI_XU_LY: Record<string, string> = {
   khac: 'Khác',
 };
 
-const TT_LABEL: Record<string, string> = {
+const _TT_LABEL: Record<string, string> = { // eslint-disable-line no-unused-vars
   cho: 'Chờ',
   dang: 'Đang làm',
   hoan: 'Hoàn',

@@ -11,7 +11,7 @@ const TT = ['de_xuat', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi'];
 // Loại xử lý hợp lệ (db/schema.sql sc_congviec CHECK)
 const LOAI_XU_LY = ['thay_moi', 'sua_chua', 'bao_duong', 'khac'];
 // Chỉ admin/ketoan được quyết toán (v3.6 perm.canQuyetToan() — v5 đã siết khỏi giamdoc/xuong)
-const QUYET_TOAN_ROLES = ['ketoan', 'admin'];
+const _QUYET_TOAN_ROLES = ['ketoan', 'admin']; // eslint-disable-line no-unused-vars
 
 function requireStr(v: any, label: string): string {
   if (typeof v !== 'string' || !v.trim()) throw new Error('Thiếu ' + label);

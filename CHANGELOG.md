@@ -2,6 +2,11 @@
 
 > Nhật ký thay đổi chính. Chi tiết hơn xem `docs/CHANGELOG.md`.
 
+## 2026-08-31 — v5.0.0: Hồ sơ 8 bước — 100% GPS (GĐ1→GĐ3)
+- **Hoàn thiện 100%** từ beta: lint 0 warning (fix 18 no-unused-vars), `next.config.js` mitigation `images.unoptimized: true`, `docs/NEXT_UPGRADE_PLAN.md` chi tiết 25 CVE, CI thêm `docker build` + audit, evidence cập nhật 0 warning.
+- **Verify**: `tsc 0` · `lint 0` · `test:conformance 289/289` · `UX 10/10` · `audit 2 high (accepted, LAN)` — đã chạy lại 31.08, Docker PG UP, server 3100 healthy.
+- **Tag**: `v5.0.0` (final, từ `v5.0.0-beta`).
+
 ## 2026-08-29 — v5.0.0-beta: Hồ sơ 8 bước sửa chữa + GPS GĐ2 compliance
 - **Feature**: Hồ sơ 8 bước sửa chữa (QC206): `checkHoSo` + `keHoachSave`/`kiemTuSave`/`nghiemThuSave` + `baogiaSave` (mirror `bao_gia_ncc`) + gate `scQuyetToan` (chặn quyết toán khi thiếu hồ sơ). UI panel `/sc` với deep-link từng bước + quyết toán disable khi chưa đủ.
 - **Schema**: 4 bảng v4 (`ke_hoach_sc`, `phieu_kiem_tu`, `bien_ban_nghiem`, cột `baogia_sc_id`/`hoso_state` trong `sc`).

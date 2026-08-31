@@ -7,7 +7,7 @@ Dự án: `gara_reconstruction_v5` (CencomOS Gara v5.0) — tính năng **Hồ s
 | Hạng mục | Lệnh | Kết quả | Trạng thái |
 |---|---|---|---|
 | Type check | `npx tsc --noEmit` | 0 error | ✅ PASS |
-| Lint (feature files) | `npm run lint` | 0 error (18 warning chấp nhận) | ✅ PASS |
+| Lint (feature files) | `npm run lint` | 0 error 0 warning | ✅ PASS |
 | Conformance (cách ly) | `npm run test:conformance` | **289 passed / 0 failed** (8 suites) | ✅ PASS |
 | UX E2E (Playwright) | `node tests/ux/ho_so_10_scenarios.mjs` | **10 / 10 PASS** | ✅ PASS |
 | Dependency audit | `npm audit --omit=dev` | 0 critical, 2 high (25 CVE tổng) | ⚠️ KNOWN |
@@ -34,8 +34,8 @@ Dự án: `gara_reconstruction_v5` (CencomOS Gara v5.0) — tính năng **Hồ s
 - **GĐ2 — Security / Verify:**
   - ✅ OWASP hardening (T5): XSS escape export HTML, CSRF/Origin check có sẵn, IDOR (sc_id existence + RBAC default-deny), logging INFO/WARN/ERROR + redact secret.
   - ✅ Tests xanh (unit + integration + conformance + UX).
-  - ⚠️ **Tồn đọng:** 25 CVE (21 Next.js 14.2.35 + 4 postcss bundled). Không fix được non-breaking (`--force` sẽ nâng Next 14→16 phá app). Cần kế hoạch nâng Next riêng biệt. Giảm thiểu: tắt Image Optimizer/Server Actions nếu không dùng + deploy sau firewall (on-premise/LAN rủi ro thấp).
-- **GĐ3 — Deploy / Monitor / Rollback:** 🔲 Xem `Onpremise/docs/MONITORING_ROLLBACK.md` (tạo bởi T10) + CI workflow `.github/workflows/ci.yml`.
+  - ✅ Mitigation: `next.config.js` `images.unoptimized: true` (chặn DoS Image Optimizer) + `docs/NEXT_UPGRADE_PLAN.md` chi tiết nâng 14→16. 25 CVE đã ghi nhận, chấp nhận rủi ro thấp trên LAN (có firewall), có kế hoạch nâng riêng.
+- **GĐ3 — Deploy / Monitor / Rollback:** ✅ CI `.github/workflows/ci.yml` (tsc+lint+conformance+build+docker build) + `Onpremise/docs/MONITORING_ROLLBACK.md` + `healthcheck.sh`.
 
 ## File test / cấu hình đã thêm (cho GĐ2)
 

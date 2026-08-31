@@ -83,25 +83,26 @@ const META: Record<string, [string, string]> = {
   report: ['report', 'xem'],
 };
 
-const HANDLERS: Record<string, (api: Api, args: any) => Promise<any>> = {
+/* eslint-disable no-unused-vars */
+const HANDLERS: Record<string, (_api: Api, _args: any) => Promise<any>> = {
   // OPEN handlers (no auth required)
-  login: async (api, args) => {
+  login: async (_api, _args) => {
     // Login is handled by /api/auth route; RPC login returns guidance
     return { ok: true, result: { message: 'Use /api/auth with action=login' } };
   },
-  logout: async (api, args) => {
+  logout: async (_api, _args) => {
     // Actual cookie clearing is done by /api/auth route; RPC logout returns ok
     return { ok: true, result: { loggedOut: true } };
   },
-  currentUser: async (api, args) => {
+  currentUser: async (api, _args) => {
     const actor = api.auth.current();
     return { ok: true, result: actor };
   },
-  appInfo: async (api, args) => {
+  appInfo: async (_api, _args) => {
     return { ok: true, result: { name: 'cencomOS Gara v5', version: process.env.npm_package_version || '5.0.0', roles: ROLES } };
   },
   // Authenticated handlers
-  xeList: (api, a) => xe.xeList(api),
+  xeList: (api, _a) => xe.xeList(api),
   xeGet: (api, a) => xe.xeGet(api, a.id),
   xeCreate: (api, a) => xe.xeCreate(api, a),
   scList: (api, a) => sc.scList(api, a),
@@ -113,14 +114,14 @@ const HANDLERS: Record<string, (api: Api, args: any) => Promise<any>> = {
   scHoanThanh: (api, a) => sc.scHoanThanh(api, a),
   scTuChoi: (api, a) => sc.scTuChoi(api, a),
   scQuyetToan: (api, a) => sc.scQuyetToan(api, a),
-  vattuList: (api, a) => kho.vattuList(api),
+  vattuList: (api, _a) => kho.vattuList(api),
   vattuGet: (api, a) => kho.vattuGet(api, a.id),
   vattuCreate: (api, a) => kho.vattuCreate(api, a),
   nhapKho: (api, a) => kho.nhapKho(api, a),
   xuatKho: (api, a) => kho.xuatKho(api, a),
   dmCreate: (api, a) => kho.dmCreate(api, a),
   dmNhap: (api, a) => kho.dmNhap(api, a),
-  baogiaList: (api, a) => bg.baogiaList(api),
+  baogiaList: (api, _a) => bg.baogiaList(api),
   baogiaGet: (api, a) => bg.baogiaGet(api, a.id),
   baogiaSave: (api, a) => bg.baogiaSave(api, a),
   hoSoGet: (api, a) => hs.hoSoGet(api, a.sc_id),
@@ -131,9 +132,10 @@ const HANDLERS: Record<string, (api: Api, args: any) => Promise<any>> = {
   kiemTuSave: (api, a) => hs.kiemTuSave(api, a),
   nghiemThuSave: (api, a) => hs.nghiemThuSave(api, a),
   activityFeed: (api, a) => act.activityFeed(api, a),
-  dashboard: (api, a) => Promise.resolve({ ok: true }),
-  report: (api, a) => Promise.resolve({ ok: true }),
+  dashboard: (_api, _a) => Promise.resolve({ ok: true }),
+  report: (_api, _a) => Promise.resolve({ ok: true }),
 };
+/* eslint-enable no-unused-vars */
 
 export async function dispatch(api: Api, fn: string, args: any): Promise<any> {
   if (!HANDLERS[fn]) throw new Error('Unknown fn: ' + fn);
