@@ -135,3 +135,15 @@
 
 ---
 *Thứ tự execute: **W0 → W1 (Kho) → W2 (DM) → W3 (Xưởng) → [3.9 nếu chốt] → W4 (Cross+AI) → W5 (v5.2.0)**. Plan được lập từ 3 báo cáo `docs/convergence/01-03` (98 + 65 + 142 hạng mục). CHỜ DUYỆT trước khi execute.*
+
+
+---
+## GPS TIẾN ĐỘ (cập nhật live 01.09)
+| Wave | Trạng thái | Gate thật | Commit |
+|---|---|---|---|
+| W0 FIX NỀN | DONE | tsc=0 · 336/336 · race 4/4 · totals 8/8 | aaf11c9 |
+| W1 KHO | DONE | 378/378 · e2e kho 4/4 · tools→40 động | da3091e |
+| W2 DM | DONE | dm_read+decide 16/16 · e2e dm 4/4 · ngưỡng 5tr (v3.6 seed.js:260) · res/prompt MCP | a262dad |
+| W3 XUONG | ~70% | dashboardAll+cache 21/21 · 6 fn dong SC 53/53 · rbac 269 · e2e kanban 4/4 + sc 1/1 · CON W3.5: scApprove+scTongDuyet+sc_phien_ban | (tiep) |
+| W4 CROSS+AI | CHO | admin7fn+must_change · search · in A4 · PA1 · PWA · boss pack | |
+| W5 RELEASE | CHO | >=590 + bump v5.2.0 + docs + (push khi co remote) | |
