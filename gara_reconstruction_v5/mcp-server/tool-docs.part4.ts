@@ -84,4 +84,71 @@ export const PART4: Record<string, ToolDoc> = {
     mode: 'READ',
     example: { from: '2026-09-01', to: '2026-09-30', limit: 50, offset: 0 },
   },
+
+  // ─── W2a: DM đề nghị mua (trục MUA SẮM) — 3 READ perm ['kho','xem'] +
+  // 1 WRITE ['kho','sua'] (soft-delete; MCP deny mặc định khi MCP_WRITE_TOOLS='') ───
+  dmList: {
+    title: 'Danh sách đề nghị mua (phân trang)',
+    descVi:
+      'READ-only: danh sách phiếu đề nghị mua — mỗi dòng kèm mã DM, trạng thái (cho_duyet|da_nhap|tu_choi), tổng giá trị, ngày tạo, số dòng vật tư, SC gắn kết (dm.sc_id). Lọc theo trạng thái và khoảng ngày from/to (YYYY-MM-DD); phân trang page/limit≤200 + total. Loại dữ liệu is_test của admin. Dùng khi mở tab mua sắm soát đề nghị chờ duyệt / đã nhập / bị từ chối theo kỳ.',
+    descEn:
+      'READ-only: purchase-request (DM) list — each row carries DM code, status (cho_duyet|da_nhap|tu_choi), total value, created date, line count and linked repair order (dm.sc_id). Filter by status and from/to date range (YYYY-MM-DD); paginated page/limit<=200 with total. Admin test data hidden. Use to review pending/approved/rejected purchase requests per period.',
+    mode: 'READ',
+    example: { trang_thai: 'cho_duyet', from: '2026-09-01', to: '2026-09-30', page: 1, limit: 50 },
+  },
+  dmDetail: {
+    title: 'Chi tiết một đề nghị mua',
+    descVi:
+      'READ-only: header đề nghị mua (id, trạng thái, tổng tiền, người tạo, SC gắn kết) + toàn bộ items JOIN vattu (ten, don_vi, so_luong, don_gia) theo dm_chitiet. Trả {ok:false,"Không thấy đề nghị."} khi id sai/đã xóa mềm. Dùng khi mở phiếu DM để duyệt hàng loạt hoặc đối chiếu từng dòng vật tư trước khi nhập kho.',
+    descEn:
+      'READ-only: purchase-request header (id, status, total, creator, linked SC) plus all items joined with materials (name, unit, quantity, unit price) from dm_chitiet. Returns {ok:false,"Không thấy đề nghị."} for unknown/soft-deleted ids. Use when opening a DM for approval review or reconciling material lines before stock-in.',
+    mode: 'READ',
+    example: { id: 'DM-000001' },
+  },
+  dmListBySc: {
+    title: 'Đề nghị mua liên quan một phiếu sửa chữa',
+    descVi:
+      'READ-only: mọi đề nghị mua gắn với MỘT SC qua header dm.sc_id (v5 link reside ở header — dmNhap luôn copy sc_id xuống phiếu nhập nên bao cả nhánh "đã nhập theo SC" mà v3.6 phải union qua ref_dm). Trả cùng shape dòng với dmList (kèm so_dong, tong). Dùng khi từ phiếu SC muốn biết đã lập/nhập những đề nghị mua nào cho xe này.',
+    descEn:
+      'READ-only: all purchase requests linked to ONE repair order via dm.sc_id (v5 keeps the link on the header; dmNhap copies sc_id onto receipt lines, covering the "receipted for SC" branch that v3.6 UNIONed via ref_dm). Same row shape as dmList (line count, total). Use to trace which buy requests were raised or received for a given repair order.',
+    mode: 'READ',
+    example: { sc_id: 'SC-000001' },
+  },
+  dmDelete: {
+    title: 'Xóa mềm đề nghị mua chờ duyệt',
+    descVi:
+      'WRITE (soft-delete, quyền ["kho","sua"]): chỉ xóa được đề nghị ở trạng thái cho_duyet VÀ chưa có phiếu nhập tham chiếu (v5 không có cột ref_dm — nhận diện qua dấu vết ly_do "Nhập DM <id>" do dmNhap ghi buộc). Vi phạm một trong hai điều kiện → {ok:false,error} tương ứng; thành công đặt deleted_at (không DELETE cứng, dm_chitiet giữ nguyên để truy vết/khôi phục). Dùng khi người tạo thu hồi nháp đề nghị mua sai.',
+    descEn:
+      'WRITE (soft-delete, perm ["kho","sua"]): only a cho_duyet request WITHOUT any referencing stock receipt can be removed (v5 has no ref_dm column — the link is the enforced ly_do marker "Nhập DM <id>" written by dmNhap). Either condition violated → {ok:false,error}; success stamps deleted_at (no hard delete; detail rows retained for audit/restore). Use when a creator withdraws a wrong draft purchase request.',
+    mode: 'WRITE',
+    example: { id: 'DM-000001' },
+  },
+
+  // ─── W2b: DM chuỗi duyệt (decide/từ SC/bù tồn) — 3 WRITE, quyền trong core ───
+  dmDecide: {
+    title: 'Duyệt / từ chối đề nghị mua',
+    descVi:
+      'WRITE (gateway kho.xem — phán quyết quyền ở core): quyết định một DM đang "cho_duyet" với quyet="duyet"|"tu_choi". Giao dịch + FOR UPDATE: chỉ đổi trạng thái khi còn chờ duyệt (ngược lại trả "chỉ duyệt khi chờ duyệt"). Duyệt → "da_duyet" + người/ngày duyệt; từ chối BẮT BUỘC ly_do, ghi lý do. Quyền theo ngưỡng config "duyet_mua_nguong" (mặc định 5.000.000 — v3.6): admin/giamdoc duyệt vô hạn, ketoan chỉ trong ngưỡng, vai khác nhận lỗi "cần Giám đốc duyệt". Không trừ/cộng tồn (nhập kho là dmNhap). Audit dm_duyet cùng transaction.',
+    descEn:
+      'WRITE: approve or reject a pending purchase request (quyet=duyet|tu_choi) inside one transaction with FOR UPDATE. Only a cho_duyet DM can be decided; approve stamps da_duyet + approver/date, reject requires a non-empty reason. Authority mirrors v3.6: admin/giamdoc unlimited, ketoan only up to config duyet_mua_nguong (default 5,000,000 VND), everyone else gets the "Giám đốc" guidance error. Touches no stock; audits dm_duyet in the same tx.',
+    mode: 'WRITE',
+    example: { id: 'DM-000004', quyet: 'duyet' },
+  },
+  dmFromSC: {
+    title: 'Tạo đề nghị mua từ nhu cầu SC',
+    descVi:
+      'WRITE (quyền ["kho","tao"]): gom toàn bộ dòng sc_vattu tt="can_mua" của một phiếu sửa chữa theo vật tư (SUM số lượng, đơn giá = gd_dk dòng đầu hoặc giá vật tư nếu 0) và lập MỘT DM chờ duyệt gắn sc_id, lý do "Vật tư cho phiếu sửa chữa <SC>". Chặn "đang mở" nếu SC đã có DM cho_duyet (idempotent: 2 lệnh song song trên cùng SC tuần tự nhờ lock dòng cầu). Trả {ok:false,"Không còn vật tư cần mua."} khi cầu đã đáp ứng hết. Audit dm_tao cùng transaction.',
+    descEn:
+      'WRITE (perm kho.tao): group all can_mua material lines of a repair order by material (sum quantity, unit price = first gd_dk else catalog price) and create ONE pending DM linked to the SC. Refuses with "đang mở" if an open DM already exists for the SC (race-safe via row locks, idempotent). Audits dm_tao in the same transaction.',
+    mode: 'WRITE',
+    example: { sc_id: 'SC-000001' },
+  },
+  dmAutoBu: {
+    title: 'Tự động bù tồn tối thiểu',
+    descVi:
+      'WRITE (quyền ["kho","tao"], không tham số): quét vật tư đang thiếu (0 < ton_min, ton < ton_min), bỏ qua vật tư đã nằm trong DM chưa khép (cho_duyet/da_duyet — hàng đang trên đường về, port nguyên v3.6), và lập MỘT DM nhiều dòng (sl bù = ton_min − ton, đơn giá = giá vật tư, lý do "Tự động bổ sung tồn tối thiểu", không gắn SC). Không có gì thiếu → {ok:true,id:null,"Không cần bổ sung tồn."}. Audit dm_tao trong transaction.',
+    descEn:
+      'WRITE (perm kho.tao, no arguments): scans materials below ton_min, skips those already covered by open/approved DMs (v3.6 semantics), and creates ONE multi-line restock DM (quantity = ton_min − ton, catalog price, reason "Tự động bổ sung tồn tối thiểu", no SC link). Returns id:null when nothing is short. Audits dm_tao inside the transaction.',
+    mode: 'WRITE',
+  },
 };

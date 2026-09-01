@@ -165,6 +165,35 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
   const [vtId, setVtId] = useState('');
   const [vtSo, setVtSo] = useState('1');
 
+  // ── W2.5 · 'Gán giá NCC' (chỉ khi SC ở trạng thái de_xuat) ──────────────
+  // Bảng chọn 'Đơn giá: [giá lịch sử]' + danh sách 'top 8' kèm ncc/ngày,
+  // nguồn RPC `giaLichSuList` (meta ['kho','xem']).
+  //
+  // ⚠️ LỊCH SỬ W2.5 → ĐÃ ĐÓNG GÓI Ở W3.3A (wire cuối W2.5-flag):
+  //   `scAddVatTu` core (lib/core/sc.ts:201-241) NHẬN `don_gia` (alias cột v5
+  //   `gd_dk`): gd_dk = p.gd_dk ?? p.don_gia ?? 0, clamp ≥ 0, INSERT vào
+  //   `sc_vattu.gd_dk` — contract lib/contracts.ts cũng đã mở 2 key. Nên cờ
+  //   bật TRUE: giá chọn từ top-8 `giaLichSuList` được gửi theo dòng VT.
+  //   Hành vi có chủ đích: KHÔNG chọn giá → don_gia thiếu → gd_dk=0 ("dòng
+  //   chưa giá", fixture W0.2 — không fallback vattu.gia như v3.6).
+  const WIRESH_PRICE = true; // W2.5-flag: wire don_gia(=gd_dk) vào scAddVatTu
+  // (giữ biến để bật/tắt nhanh nếu regression; dead-code `!WIRESH_PRICE` bên
+  // dưới là hint tham khảo W2.5 — không render khi cờ true.)
+  interface GiaRow {
+    id: string;
+    vattu_id: string;
+    gia: number;
+    ncc?: string | null;
+    loai?: string | null;
+    ngay?: string | null;
+    phieu_id?: string | null;
+  }
+  const [giaRows, setGiaRows] = useState<GiaRow[]>([]);
+  const [giaLoading, setGiaLoading] = useState(false);
+  const [giaError, setGiaError] = useState<string | null>(null);
+  const [giaChon, setGiaChon] = useState<GiaRow | null>(null);
+
+
   const load = useCallback(async () => {
     setLoading(true);
     setActError(null);
@@ -295,6 +324,42 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
     setMutating(false);
   };
 
+  // W2.5 — fetch top-8 giá lịch sử của vật tư đang chọn, CHỈ khi SC de_xuat.
+  // huỷ kết quả nếu người dùng đổi vtId giữa lúc đang fetch (race token).
+  useEffect(() => {
+    if (!open || sc?.trang_thai !== 'de_xuat' || !vtId) {
+      setGiaRows([]);
+      setGiaError(null);
+      setGiaChon(null);
+      return;
+    }
+    let active = true;
+    setGiaLoading(true);
+    setGiaError(null);
+    setGiaChon(null);
+    (async () => {
+      // env lồng: dm/giaLichSu trả {ok:false,error} trong result, HTTP vẫn 200
+      const r = await api.call('giaLichSuList', { vattu_id: vtId, limit: 8 });
+      if (!active) return;
+      if (r.ok) {
+        const env = r.result as { ok: boolean; result?: GiaRow[]; error?: string };
+        if (env && env.ok === false) {
+          setGiaError(env.error || 'Không tải được lịch sử giá');
+          setGiaRows([]);
+        } else {
+          setGiaRows((env?.result ?? []) as GiaRow[]);
+        }
+      } else {
+        setGiaError(r.error || 'Không tải được lịch sử giá');
+        setGiaRows([]);
+      }
+      setGiaLoading(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [open, sc?.trang_thai, vtId, api]);
+
   const doCv = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!cvMo.trim()) return;
@@ -320,9 +385,17 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
     e.preventDefault();
     if (!vtId) return;
     setMutating(true);
-    const r = await api.call('scAddVatTu', { sc_id: id, vattu_id: vtId, so_luong: Number(vtSo) });
+    // W2.5-flag: WIRESH_PRICE=true → gửi `don_gia` (alias gd_dk — W3.3A core
+    // lib/core/sc.ts:219). Không chọn giá lịch sử → key absence → gd_dk=0.
+    const args: { sc_id: string; vattu_id: string; so_luong: number; don_gia?: number } = {
+      sc_id: id,
+      vattu_id: vtId,
+      so_luong: Number(vtSo),
+    };
+    if (WIRESH_PRICE && giaChon) args.don_gia = giaChon.gia;
+    const r = await api.call('scAddVatTu', args);
     if (r.ok) {
-      setVtId(''); setVtSo('1');
+      setVtId(''); setVtSo('1'); setGiaChon(null);
       await refreshAll();
     } else {
       setActError(r.error || 'Thêm vật liệu thất bại');
@@ -714,6 +787,7 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
                   <label className="block text-sm font-medium text-slate-700">Vật tư *</label>
                   <select
                     required
+                    data-testid="sc-vt-select"
                     value={vtId}
                     onChange={(e) => setVtId(e.target.value)}
                     className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
@@ -731,6 +805,7 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
                   <input
                     type="number"
                     min={1}
+                    data-testid="sc-vt-soluong"
                     value={vtSo}
                     onChange={(e) => setVtSo(e.target.value)}
                     className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
@@ -739,12 +814,90 @@ function ScDetailModal({ id, open, onClose, onDone, xeMap, vattuList, canSua, ca
                 <div className="flex justify-end">
                   <button
                     type="submit"
+                    data-testid="sc-vt-submit"
                     disabled={mutating || api.loading || vattuList.length === 0}
                     className="rounded bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                   >
                     {mutating ? 'Đang thêm…' : 'Thêm vật tư'}
                   </button>
                 </div>
+                {/* W2.5 · 'Gán giá NCC' — chỉ khi SC ở trạng thái de_xuat */}
+                {sc?.trang_thai === 'de_xuat' && (
+                  <div
+                    data-testid="sc-gia-ncc"
+                    className="col-span-3 rounded border border-slate-200 bg-slate-50 p-2 text-xs"
+                  >
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="font-semibold text-slate-600">Gán giá NCC (lịch sử)</span>
+                      {!WIRESH_PRICE && (
+                        <span className="text-[11px] text-amber-700">
+                          Hiển thị tham khảo · gán giá sẽ ở W3.4
+                        </span>
+                      )}
+                    </div>
+                    {!vtId ? (
+                      <div className="text-slate-400">Chọn vật tư để xem lịch sử giá.</div>
+                    ) : giaLoading ? (
+                      <div className="text-slate-400">Đang tải lịch sử giá…</div>
+                    ) : giaError ? (
+                      <div className="text-red-600">{giaError}</div>
+                    ) : giaRows.length === 0 ? (
+                      <div className="text-slate-400">Chưa có lịch sử giá cho vật tư này.</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-slate-500">Đơn giá</label>
+                          <select
+                            data-testid="sc-gia-ncc-select"
+                            value={giaChon ? giaChon.id : ''}
+                            onChange={(ev) => {
+                              const hit = giaRows.find((g) => g.id === ev.target.value) ?? null;
+                              setGiaChon(hit);
+                              // WIRESH_PRICE=true (W2.5-flag): selection này được
+                              // doVt gửi đi dạng `args.don_gia` → core ghi gd_dk.
+                            }}
+                            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                          >
+                            <option value="">— chọn giá lịch sử —</option>
+                            {giaRows.map((g, i) => (
+                              <option key={g.id} value={g.id}>
+                                {money(g.gia)}
+                                {g.ncc ? ` · ${g.ncc}` : ''} · {g.ngay || ''}
+                                {i === 0 ? ' (mới nhất)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <div className="text-slate-500">Top {giaRows.length} giá gần nhất</div>
+                          <ul
+                            data-testid="sc-gia-ncc-list"
+                            className="mt-1 max-h-28 overflow-y-auto rounded border border-slate-200 bg-white"
+                          >
+                            {giaRows.map((g) => (
+                              <li key={g.id} className="border-b border-slate-100 px-2 py-1 last:border-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setGiaChon(g)}
+                                  className={
+                                    'w-full text-left ' +
+                                    (giaChon?.id === g.id ? 'font-semibold text-indigo-700' : 'text-slate-700 hover:bg-slate-50')
+                                  }
+                                >
+                                  {money(g.gia)}
+                                  <span className="ml-1 text-slate-400">
+                                    · {g.ncc || 'NCC ?'} · {g.ngay || '—'}
+                                    {g.loai ? ` · ${g.loai}` : ''}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </form>
             ) : (
               <div className="mb-2 text-sm text-slate-400">Bạn không có quyền thêm vật tư.</div>

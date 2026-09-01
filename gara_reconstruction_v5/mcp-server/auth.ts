@@ -53,6 +53,21 @@ const READ_TOOLS = new Set<string>([
   // W1c-reg: thanhLyList — READ (META ['kho','xem']); bảng kê thuần đọc, không ghi
   // gì (dòng thanh_ly do autoGen/xuatKho viết là chuyện nội bộ transaction).
   'thanhLyList',
+  // W2a: DM đọc 3 fn — READ thuần (META ['kho','xem']); dmDelete KHÔNG vào đây:
+  // WRITE (META ['kho','sua'], soft-delete ghi DB) → cần MCP_WRITE_TOOLS allowlist.
+  'dmList',
+  'dmDetail',
+  'dmListBySc',
+  // W2b: dmDecide/dmFromSC/dmAutoBu KHÔNG vào READ_TOOLS — cả 3 là WRITE
+  // (ghi dm/dm_chitiet + audit, xem tool-docs.part4 mode:'WRITE'); mặc định
+  // MCP_WRITE_TOOLS='' → deny, bật ghi có chủ đích qua allowlist.
+  // W3.1-reg: dashboardAll — READ thuần (META ['sc','xem'], core/xuong.ts):
+  // Kanban + KPI chỉ đọc; 401/403-ketoan trả về là ENVELOPE {ok:false}, không ghi gì.
+  'dashboardAll',
+  // W3.3A: thoList — READ thuần (META ['sc','xem'], core/sc.ts): SELECT id+name users
+  // role='xuong'. ScWorkSet/scWorkDel/scVtUpd/scVtDel/scSetDeadline KHÔNG vào đây —
+  // WRITE ghi DB (dòng sc_congviec/sc_vattu/sc + audit) → MCP_WRITE_TOOLS='' mặc định deny.
+  'thoList',
 ]);
 
 /**

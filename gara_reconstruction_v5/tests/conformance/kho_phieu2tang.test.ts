@@ -4,6 +4,8 @@
  * Kiểm chứng thiết kế TỐI GIỂU đã chốt:
  *  - KHÔNG có bảng header riêng; effective group id = COALESCE(NULLIF(phieu_id,''), id)
  *  - dmNhap 3 dòng → MỘT nhóm phieu_id (id dòng đầu), header suy từ dòng đầu
+ *  - W2c (kế thừa siết v3.6 phNhapCreate): dmNhap chỉ nhận DM 'da_duyet' → test
+ *    (a) thêm bước giamdoc dmDecide TRƯỚC nhập (trước đó là bản W1a nhập ngay)
  *  - nhapKho/xuatKho đơn dòng → phieu_id tự tham chiếu → nhóm 1 dòng
  *  - dòng legacy trước W1a (phieu_id='') → eff = id → VẪN hiện (tương thích lùi)
  *  - phieuList filter {loai, sc_id, from, to} + phân trang limit≤200 + total
@@ -62,7 +64,7 @@ describe('W1a Phiếu nhập/xuất 2 tầng — phieuList/phieuGet + dmNhap the
     }
   });
 
-  test('(a) dmCreate 3 items → dmNhap → ĐÚNG 1 nhóm so_dong=3, tong đúng; phieuGet khớp', async () => {
+  test('(a) dmCreate 3 items → DUYES (giamdoc) → dmNhap → ĐÚNG 1 nhóm so_dong=3, tong đúng; phieuGet khớp', async () => {
     const dmRes = await rpc(getKhoToken(), 'dmCreate', {
       sc_id: scId,
       ngay: today(),
@@ -71,8 +73,19 @@ describe('W1a Phiếu nhập/xuất 2 tầng — phieuList/phieuGet + dmNhap the
     expect(dmRes.body.ok).toBe(true);
     dmId = dmRes.body.result.id;
 
+    // W2c: nhập ngay khi DM còn 'cho_duyet' → core chặn (envelope, HTTP 200) —
+    // dựng lại đúng hành vi v3.6 phNhapCreate:341-343 ('da_duyet' mới được nhập).
+    const preNhap = await rpc(getKhoToken(), 'dmNhap', { dm_id: dmId });
+    expect(preNhap.status).toBe(200);
+    expect(preNhap.body.result.ok).toBe(false);
+    expect(String(preNhap.body.result.error)).toMatch(/Chỉ nhập khi đề nghị đã duyệt/);
+    // DUYỆT trước (giamdoc có quyền mua.duy — pattern dm_decide.test.ts)
+    const apRes = await rpc(getGiamdocToken(), 'dmDecide', { id: dmId, quyet: 'duyet' });
+    expect(apRes.body.result.ok).toBe(true);
+
     const nhapRes = await rpc(getKhoToken(), 'dmNhap', { dm_id: dmId });
     expect(nhapRes.body.ok).toBe(true);
+    expect(nhapRes.body.result.ok).toBe(true); // nhập THẬT sự thành công (không chỉ dispatch)
 
     // Lọc sc_id HẸP (phiếu DM gắn sc vừa tạo) → không nhóm khác chen vào được
     const list = unwrapList(await rpc(getKhoToken(), 'phieuList', { loai: 'nhap', sc_id: scId }));

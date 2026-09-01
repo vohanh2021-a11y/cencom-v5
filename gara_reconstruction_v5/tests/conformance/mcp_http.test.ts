@@ -147,7 +147,9 @@ describe('MCP HTTP mode parity (W1.8a)', () => {
     expect(Array.isArray(resources)).toBe(true);
     expect(resources.length).toBeGreaterThanOrEqual(1); // seed `xe` luôn có
     for (const r of resources) {
-      expect(/^(sc|xe):\/\//.test(r.uri)).toBe(true);
+      // W2.7: đăng ký thêm template dm://{dm_id} + kho://tai-san/{xe_id} →
+      // listResources (gộp mọi listCallback) hợp lệ với 4 scheme.
+      expect(/^(sc|xe|dm|kho):\/\//.test(r.uri)).toBe(true);
     }
 
     const { resourceTemplates } = await client.listResourceTemplates();

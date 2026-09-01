@@ -3,6 +3,7 @@ import type { Api } from '../types';
 import { row, run, nextId, withTransaction } from '../db';
 import { logActivity } from './activity';
 import { createScopedLogger } from '../observability';
+import { invalidateDashCache } from './xuong'; // W3.2-wire: ghi xong luồng kho/DM → lạnh dashboard xưởng
 
 const log = createScopedLogger('kho');
 
@@ -192,6 +193,7 @@ export async function nhapKho(
     }
     await auditTx(client, { actor_id: u?.id, actor_role: role, hanh_dong: 'kho_nhap', doi_tuong: 'nhap_xuat', doi_tuong_id: id, sc_id: scId ?? undefined, mo_ta: isCuHong ? 'Nhập kho VT cũ/hỏng (thu hồi) ' + id : undefined, is_test: role === 'admin' ? 1 : 0 });
   });
+  invalidateDashCache(); // W3.2-wire (post-commit): nhập kho → ton/nhap_xuat → KPI dash đổi
   return { id };
 }
 
@@ -301,6 +303,7 @@ export async function xuatKho(
     //W1c: autoXuatSC/autoGenCuHong là HÀM CORE ĐỘC LẬP (cuối file) — không gọi inline
     //từ đây để hành vi W1a/W1b giữ nguyên bitwise; hook gọi nằm ở lớp RPC/W3 (TODO đó).
   });
+  invalidateDashCache(); // W3.2-wire (post-commit): xuất kho → ton/nhap_xuat → KPI dash đổi
   return { id };
 }
 
@@ -338,10 +341,26 @@ export async function dmCreate(
   } catch (e) {
     log.logError('logActivity dm_tao failed', e, { id, sc_id: p.sc_id });
   }
+  invalidateDashCache(); // W3.2-wire: DM gắn sc_id → cột dash ứng viên (chủ động)
   return { id };
 }
 
-export async function dmNhap(api: Api, p: { dm_id: string }): Promise<{ ok: true }> {
+/**
+ * Nhập tồn kho theo đề nghị mua (W2c — siết guard theo v3.6).
+ * v3.6 đối chiếu: kho.js phNhapCreate dòng 341–343 —
+ *   `if (!dm || dm.trang_thai !== 'da_duyet') return {ok:false, error:'Đề nghị mua chưa duyệt.'}`
+ * Nghĩa là phiếu nhập lập TỪ DM chỉ được khi DM đã Giám đốc/kế-toán-duyệt;
+ * DM `cho_duyet`/`tu_choi`/không tồn tại → chặn. V5 giữ NGUYÊN hành vi đó,
+ * diễn đạt lại theo hợp đồng W2c: 'Chỉ nhập khi đề nghị đã duyệt.' — điều
+ * kiện `!== 'da_duyet'` cũng chặn luôn DM đã `da_nhap` (chống nhập lặp
+ * cộng ton hai lần — v3.6 vốn cùng nhánh chặn). Trả envelope {ok:false,
+ * error} (HTTP 200, pattern dmDelete/dmDecide W2a-W2b) thay vì throw: đây
+ * là lỗi NGHIỆP VỤ sau gate quyền, không phải lỗi input.
+ */
+export async function dmNhap(
+  api: Api,
+  p: { dm_id: string }
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const u = api.auth.current();
   const role = u?.role;
   if (!(await api.perm.can(api.db, role!, 'kho', 'tao'))) throw new Error('403');
@@ -357,6 +376,8 @@ export async function dmNhap(api: Api, p: { dm_id: string }): Promise<{ ok: true
   //dòng nhap_xuat (loai='nhap') Chung MỘT phieu_id = id dòng đầu nhóm.
   //nextId chạy connection riêng → phải lấy đủ id TRƯỚC khi mở tx (cùng quy tắc W0:
   //counter không được gọi lồng trong withTransaction, chống hết pool).
+  //W2c: id lấy thừa cho DM chưa được duyệt chỉ để lại HỔ counter (không ghi dòng
+  //nào) — đúng như v3.6: nextId('PXN') chạy TRƯỚC guard trong phNhapCreate.
   const preRows = await api.db.query(
     'SELECT vattu_id, so_luong, don_gia FROM dm_chitiet WHERE dm_id = $1 AND deleted_at = $2 ORDER BY id',
     [p.dm_id, '']
@@ -364,9 +385,18 @@ export async function dmNhap(api: Api, p: { dm_id: string }): Promise<{ ok: true
   const ids: string[] = [];
   for (let i = 0; i < preRows.rows.length; i++) ids.push(await nextId('NX'));
   const phieuId = ids[0] ?? '';
-  await withTransaction(async (client) => {
-    await client.query('SELECT id FROM dm WHERE id = $1 FOR UPDATE', [p.dm_id]);
-    const dmInfo = (await client.query('SELECT ngay_tao,sc_id FROM dm WHERE id = $1', [p.dm_id])).rows[0];
+  return await withTransaction(async (client): Promise<{ ok: true } | { ok: false; error: string }> => {
+    //W2c: ĐỌC + KHÓA một mạch (gom 2 SELECT cũ làm MỘT — lock vẫn lấy TRƯỚC
+    //mọi suy biến). Guard trạng thái đặt TRƯỚC khi cộng ton/update: DM chưa
+    //duyệt không được phép chạm vào vattu.ton. DM xóa-mềm còn 'cho_duyet' cũng
+    //rơi vào nhánh chặn này → luôn bị từ chối (chặt hơn v3.6, đúng chiều).
+    const dmInfo = (await client.query(
+      'SELECT trang_thai,ngay_tao,sc_id FROM dm WHERE id = $1 FOR UPDATE',
+      [p.dm_id]
+    )).rows[0];
+    if (!dmInfo || dmInfo.trang_thai !== 'da_duyet') {
+      return { ok: false, error: 'Chỉ nhập khi đề nghị đã duyệt.' };
+    }
     const rows = (await client.query(
       "SELECT vattu_id,so_luong,don_gia FROM dm_chitiet WHERE dm_id=$1 AND deleted_at='' ORDER BY id",
       [p.dm_id]
@@ -395,8 +425,9 @@ export async function dmNhap(api: Api, p: { dm_id: string }): Promise<{ ok: true
     }
     await client.query("UPDATE dm SET trang_thai='da_nhap' WHERE id=$1", [p.dm_id]);
     await auditTx(client, { actor_id: u?.id, actor_role: role, hanh_dong: 'dm_nhap', doi_tuong: 'dm', doi_tuong_id: p.dm_id, sc_id: dmInfo?.sc_id ?? null, is_test: isTest });
+    invalidateDashCache(); // W3.2-wire (end-of-tx): dmNhap đổi ton → KPI dash đổi
+    return { ok: true };
   });
-  return { ok: true };
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -999,3 +1030,590 @@ export async function autoXuatSC(
   });
   return { ok: true, phieu_id: txRes.lines > 0 ? phieuId : null };
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// W2a — DM ĐỀ NGHỊ MUA: DOC + SOFT-DELETE PHIẾU CHỜ DUYỆT
+// (port v3.6 kho.js: dmList dòng 97–103, dmDetail 105–111, dmDelete
+// 247–255, dmListBySc 516–529 — hành vi NGUYÊN, bảng/cột theo schema v5
+// thật: de_nghi_mua→`dm`, dm_mua_ct→`dm_chitiet`).
+// W2b (dmDecide/dmFromSC/dmAutoBu) nối tiếp file này — KHÔNG viết ở W2a.
+//
+// LỆCH v3.6 ĐÃ XÁC MINH TRÊN SCHEMA THẬT (ghi chú bàn giao):
+//  1) v3.6 link đề nghị↔SC qua dm_mua_ct.sc_id (per-line) và dấu vết nhập
+//     qua phieu_nh_ct.ref_dm. v5 KHÔNG có cột ref_dm ở đâu cả và
+//     dm_chitiet cũng không có sc_id: liên kết nằm ở header `dm.sc_id`
+//     (dmCreate ghi) còn phiếu nhập từ DM được dmNhap ghi dấu vết
+//     `nhap_xuat.ly_do = 'Nhập DM <id>'` (hằng số core — không có đường
+//     nào khác tạo chuỗi này). dmListBySc theo `dm.sc_id` là_cover cả hai
+//     nhánh v3.6 (dmNhap luôn copy sc_id header xuống dòng phiếu); điều
+//     kiện ly_do của dmDelete tương đương COUNT(phieu_nhap WHERE ref_dm)
+//     v3.6 vì dm không sc_id → phiếu nhập cũng không sc_id (đọc dmInfo).
+//  2) Bỏ `label` (tự điển DM_TT v3.6) khỏi rows — contract UI worker-c→
+//     worker-e chốt shape {id,ma,trang_thai,tong,ngay_tao,so_dong,sc_id}.
+//     `ma` = id (v5 'DM-000001'; v3.6 dùng prefix 'DNM' — không bịa lại).
+//  3) whitelist trang_thai bám sát CHECK `dm` v5 — W2a chốt 3 giá trị
+//     ('cho_duyet','da_nhap','tu_choi') vì 'da_duyet' CHƯA tồn tại ở CHECK
+//     thời điểm đó; W2b (dmDecide) đã cấp 'da_duyet' trong CHECK
+//     (db/schema.sql) → whitelist mở theo 4 giá trị (giữ hợp đồng dmList).
+//  4) id-không-tìm-thấy: v3.6 dmDetail trả null → v5 trả envelope
+//     {ok:false,'Không thấy đề nghị.'} như dmDelete v3.6 dòng 250 (HTTP
+//     wrapper vẫn {ok:true,result:{ok:false,...}} — dispatch không đổi).
+// ═════════════════════════════════════════════════════════════════════
+
+/** Whitelist trạng thái DM — khớp CHÍNH XÁC CHECK constraint bảng `dm`
+ *  (db/schema.sql; W2b mở thêm 'da_duyet' khi dmDecide cấp trạng thái duyệt). */
+const DM_TT_WHITELIST = ['cho_duyet', 'da_duyet', 'da_nhap', 'tu_choi'] as const;
+
+/** Columns SELECT chung cho mọi danh sách DM + so_dong subquery (port v3.6 dòng 100). */
+const DM_LIST_SELECT =
+  `SELECT d.id, d.sc_id, d.trang_thai, d.tong, d.ngay_tao, ` +
+  `(SELECT COUNT(*) FROM dm_chitiet c WHERE c.dm_id = d.id AND c.deleted_at = '')::int AS so_dong ` +
+  `FROM dm d `;
+
+/** ORDER thống nhất mọi hàm DM (v3.6: ngay DESC, id DESC — cột v5 là ngay_tao). */
+const DM_ORDER_SQL = `ORDER BY d.ngay_tao DESC NULLS LAST, d.id DESC`;
+
+/** Map row SQL → shape contract DM (so_json numeric → number như suite thanh_ly). */
+function dmRowOut(r: any): any {
+  return {
+    id: r.id,
+    ma: r.id,
+    trang_thai: r.trang_thai,
+    tong: Number(r.tong ?? 0),
+    ngay_tao: r.ngay_tao,
+    so_dong: Number(r.so_dong ?? 0),
+    sc_id: r.sc_id,
+  };
+}
+
+/**
+ * Danh sách đề nghị mua, phân trang + lọc (port v3.6 dmList — thêm filter/page
+ * theo contract W2a). LIST → lọc is_test=0 ĐÚNG pattern phiếu header v5
+ * (scList/baogiaList/hoSoList/tonKho: dữ liệu test admin không lẫn vào sổ);
+ * DETAIL theo id (dmDetail) KHÔNG lọc is_test như scGet/hoSoGet/vattuGet.
+ * Lỗi input trả envelope {ok:false,error} (quy ước hàm mới từ W1b — không
+ * throw, không làm route 400 mất phân biệt lỗi-nghiệp-vụ/lỗi-hệ-thống).
+ */
+export async function dmList(
+  api: Api,
+  // style `any`: RPC JSON có thể gửi number/'' — mọi giá trị validate lại ở đây
+  // (trần 200 khớp zod contract 2 tầng, không tin một phía — như tonKho).
+  p: { trang_thai?: any; from?: any; to?: any; page?: any; limit?: any } = {}
+): Promise<{ ok: boolean; result?: any[]; total?: number; page?: number; limit?: number; error?: string }> {
+  if (p?.trang_thai !== undefined && p?.trang_thai !== null && p?.trang_thai !== '') {
+    if (typeof p.trang_thai !== 'string' || !DM_TT_WHITELIST.includes(p.trang_thai as any)) {
+      return { ok: false, error: 'trang_thai không hợp lệ (cho_duyet|da_duyet|da_nhap|tu_choi)' };
+    }
+  }
+  for (const key of ['from', 'to'] as const) {
+    const v = p?.[key];
+    if (v !== undefined && v !== null && v !== '' && typeof v !== 'string') {
+      return { ok: false, error: key + ' phải là chuỗi' };
+    }
+  }
+  if (p?.from && !DATE_RE.test(p.from)) return { ok: false, error: 'from phải dạng YYYY-MM-DD' };
+  if (p?.to && !DATE_RE.test(p.to)) return { ok: false, error: 'to phải dạng YYYY-MM-DD' };
+  let page = 1;
+  if (p?.page !== undefined && p?.page !== null && p?.page !== '') {
+    const n = Number(p.page);
+    if (!Number.isInteger(n) || n < 1) return { ok: false, error: 'page phải là số nguyên >= 1' };
+    page = n;
+  }
+  let limit = 50;
+  if (p?.limit !== undefined && p?.limit !== null && p?.limit !== '') {
+    const n = Number(p.limit);
+    if (!Number.isInteger(n) || n < 1 || n > 200) return { ok: false, error: 'limit phải là số nguyên 1..200' };
+    limit = n;
+  }
+  const offset = (page - 1) * limit;
+  const where: string[] = [`d.deleted_at = ''`, `d.is_test = 0`];
+  const params: any[] = [];
+  if (p?.trang_thai) where.push(`d.trang_thai = $${params.push(p.trang_thai)}`);
+  if (p?.from) where.push(`COALESCE(d.ngay_tao,'') >= $${params.push(p.from)}`);
+  if (p?.to) where.push(`COALESCE(d.ngay_tao,'') <= $${params.push(p.to)}`);
+  const whereSql = where.join(' AND ');
+  // total tính BẰNG SQL trên toàn bộ dòng khớp (không subquery so_dong — rẻ hơn,
+  // COUNT header không phụ thuộc số dòng) → số không đổi giữa trang (như tonKho).
+  const [dataRes, totalRes] = await Promise.all([
+    api.db.query(
+      DM_LIST_SELECT + `WHERE ${whereSql} ${DM_ORDER_SQL} LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
+      params
+    ),
+    api.db.query(`SELECT COUNT(*)::int AS total FROM dm d WHERE ${whereSql}`, params.slice(0, -2)),
+  ]);
+  return {
+    ok: true,
+    result: dataRes.rows.map(dmRowOut),
+    total: totalRes.rows[0]?.total ?? 0,
+    page,
+    limit,
+  };
+}
+
+/**
+ * Chi tiết MỘT đề nghị mua: header + items JOIN vattu (ten/don_vi) — port
+ * v3.6 dmDetail dòng 105–111. v3.6 đọc cột ten/donvi denormalize trên
+ * dm_mua_ct; schema v5 dm_chitiet KHÔNG có 2 cột đó (chỉ vattu_id FK) →
+ * JOIN mới là đường đúng, giữ nguyên thông tin trả về (ten, don_vi,
+ * so_luong, don_gia). LEFT JOIN nếu vật tư gãy tên vẫn trả dòng (không
+ * LEFT JOIN nếu vật tư gãy tên vẫn trả dòng (không
+ * annihilate item — audit trail của phiếu quan trọng hơn làm sạch hiển thị).
+ * W2c: thêm 3 CỘT DUYỆT (nguoi_duyet/ngay_duyet/ly_do — schema v5 sau ALTER
+ * W2b, default '') vào header: UI kho/dm và agent cần thấy ai duyệt, duyệt
+ * ngày nào, vì sao từ chối mà không phải gọi thêm SQL; shape chỉ THÊM field
+ * (không đổi field cũ → không vỡ contract đọc W2a của worker-e).
+ */
+export async function dmDetail(
+  api: Api,
+  p: { id?: any } = {}
+): Promise<{ ok: boolean; dm?: any; items?: any[]; error?: string }> {
+  if (typeof p?.id !== 'string' || !p.id.trim() || p.id.length > 12) {
+    return { ok: false, error: 'id phải là chuỗi 1..12 ký tự' };
+  }
+  const h = await row('SELECT * FROM dm WHERE id = $1 AND deleted_at = $2', [p.id.trim(), '']);
+  if (!h) return { ok: false, error: 'Không thấy đề nghị.' };
+  const itemsRes = await api.db.query(
+    `SELECT c.id, c.vattu_id, v.ten, v.don_vi, c.so_luong, c.don_gia ` +
+    `FROM dm_chitiet c LEFT JOIN vattu v ON v.id = c.vattu_id ` +
+    `WHERE c.dm_id = $1 AND c.deleted_at = '' ORDER BY c.id`,
+    [h.id]
+  );
+  return {
+    ok: true,
+    dm: {
+      id: h.id,
+      ma: h.id,
+      sc_id: h.sc_id,
+      trang_thai: h.trang_thai,
+      tong: Number(h.tong ?? 0),
+      nguoi_tao: h.nguoi_tao,
+      ngay_tao: h.ngay_tao,
+      //W2c: chuỗi duyệt hiển thị được (dmDecide ghi nguoi/ngay khi 'duyet';
+      //ly_do ghi khi 'tu_choi'; default '' — chuẩn hóa null → '' cho UI)
+      nguoi_duyet: h.nguoi_duyet ?? '',
+      ngay_duyet: h.ngay_duyet ?? '',
+      ly_do: h.ly_do ?? '',
+    },
+    items: itemsRes.rows.map((r) => ({
+      id: r.id,
+      vattu_id: r.vattu_id,
+      ten: r.ten,
+      don_vi: r.don_vi,
+      so_luong: Number(r.so_luong ?? 0),
+      don_gia: Number(r.don_gia ?? 0),
+    })),
+  };
+}
+
+/**
+ * DM liên kết một SC (port v3.6 dmListBySc dòng 516–529 — A5 GĐ3.7).
+ * v3.6 UNION 2 nhánh (dm_mua_ct.sc_id per-line OR phieu_nh_ct.ref_dm qua
+ * sc); v5 không có 2 link đó (xem block comment đầu section): liên kết
+ * duy nhất là header `dm.sc_id`, và dmNhap copy chính nó xuống phiếu →
+ * một điều kiện覆盖 cả hai nhánh. Trả toàn bộ DM khớp (không phân trang —
+ * hợp đồng worker-e: danh sách gắn với MỘT phiếu, hữu hạn theo nghiệp vụ).
+ */
+export async function dmListBySc(
+  api: Api,
+  p: { sc_id?: any } = {}
+): Promise<{ ok: boolean; result?: any[]; error?: string }> {
+  if (typeof p?.sc_id !== 'string' || !p.sc_id.trim() || p.sc_id.length > 12) {
+    return { ok: false, error: 'sc_id phải là chuỗi 1..12 ký tự' };
+  }
+  const r = await api.db.query(
+    DM_LIST_SELECT + `WHERE d.deleted_at = '' AND d.is_test = 0 AND d.sc_id = $1 ${DM_ORDER_SQL}`,
+    [p.sc_id.trim()]
+  );
+  return { ok: true, result: r.rows.map(dmRowOut) };
+}
+
+/**
+ * Soft-delete đề nghị mua (port v3.6 dmDelete dòng 247–255). Guard 2 lớp
+ * theo contract W2a (chặt hơn v3.6 — v3.6 chỉ chặn ref):
+ *  1) còn PHIẾU NHẬP tham chiếu → từ chối. v5 không có cột ref_dm → dùng
+ *     liên kết THỰC duy nhất: dòng dmNhap ghi buộc (chọn lọc chính xác để
+ *     không LIKE-quét — xem LỆCH #1).
+ *  2) chỉ xóa khi `trang_thai = 'cho_duyet'` — 'da_nhap' đã được (1) chặn
+ *     nên điều kiện này chặn thêm nhánh 'tu_choi' theo contract.
+ * Xóa MỀM header (deleted_at = ISO now — bản ghi xóa đầu tiên trong core
+ * v5, cùng conventions TEXT deleted_at='' của schema); dm_chitiet giữ
+ * nguyên (dmList/dmDetail lọc theo header → vẫn truy vết được bằng SQL
+ * nếu cần khôi phục). Điều kiện `deleted_at=''` trong
+ * UPDATE chống double-delete race; kiểm bằng audit cùng điều kiện.
+ */
+export async function dmDelete(
+  api: Api,
+  p: { id?: any } = {}
+): Promise<{ ok: boolean; error?: string }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (typeof p?.id !== 'string' || !p.id.trim() || p.id.length > 12) {
+    return { ok: false, error: 'id phải là chuỗi 1..12 ký tự' };
+  }
+  const id = p.id.trim();
+  const d = await row('SELECT id, sc_id, trang_thai, is_test FROM dm WHERE id = $1 AND deleted_at = $2', [id, '']);
+  if (!d) return { ok: false, error: 'Không thấy đề nghị.' };
+  const nhap = await row(
+    "SELECT COUNT(*)::int AS c FROM nhap_xuat WHERE loai = 'nhap' AND deleted_at = '' AND ly_do = $1",
+    ['Nhập DM ' + id]
+  );
+  if (Number(nhap?.c ?? 0) > 0) return { ok: false, error: 'Không xoá được: đã có phiếu nhập' };
+  if (d.trang_thai !== 'cho_duyet') return { ok: false, error: 'Chỉ xoá được đề nghị ở trạng thái chờ duyệt.' };
+  const upd = await api.db.query(
+    "UPDATE dm SET deleted_at = $2 WHERE id = $1 AND deleted_at = '' RETURNING id",
+    [id, new Date().toISOString()]
+  );
+  if (upd.rows.length === 0) return { ok: false, error: 'Không thấy đề nghị.' }; // race: đối thủ vừa xóa
+  try {
+    await logActivity(api.db, {
+      actor_id: u?.id, actor_role: role, hanh_dong: 'dm_xoa',
+      doi_tuong: 'dm', doi_tuong_id: id, sc_id: d.sc_id ?? undefined,
+      mo_ta: 'Xóa đề nghị mua ' + id, is_test: Number(d.is_test ?? 0),
+    });
+  } catch (e) {
+    log.logError('logActivity dm_xoa failed', e, { id });
+  }
+  invalidateDashCache(); // W3.2-wire: xóa DM gắn sc_id → dash đổi (chủ động)
+  return { ok: true };
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// W2b — DM CHUỖI DUYỆT: dmDecide + dmFromSC + dmAutoBu
+// (port v3.6 kho.js: dmDecide dòng 229–245, dmFromSC 137–157, dmAutoBu
+// 211–227; ngưỡng perm.js:109–123 `canApproveMua` + seed.js:260
+// `duyet_mua_nguong = 5000000` — hành vi NGUYÊN, sai khác có chủ đích
+// đều ghi chú tại chỗ + Production Check cuối section.)
+//
+// CẤU TRÚC QUYỀN (v3.6 → v5):
+//  - v3.6: dmDecide = checkLock('mua','duy') (ma trận DB) && perm.canApproveMua
+//    (hard-code admin/giamdoc vô hạn; ketoan ≤ ngưỡng). v5 không có bảng
+//    phan_quyen → lớp RPC dùng META; W2b chốt META dmDecide ['kho','xem']
+//    (xem lib/rpc.ts comment) để TOÀN BỘ phán quyết duyệt nằm MỘT CHỖ trong
+//    core dưới đây — role ngoài {admin, giamdoc, ketoan≤ngưỡng} nhận
+//    business error '{ok:false,error:cần Giám đốc...}' thay vì 403 cứng;
+//    TẬP HỢP người-duyệt-được không đổi so với v3.6 (fail-closed).
+//  - MATRIX.mua.duy (lib/perm.ts) = {giamdoc(+admin bypass)} = quyền duyệt
+//    TRÊN ngưỡng; dùng đúng nhánh `duyetKhongGuong` bên dưới.
+// ═════════════════════════════════════════════════════════════════════
+
+/** Key config ngưỡng duyệt mua (v3.6 perm.js:110 configGet('duyet_mua_nguong')). */
+const MUA_NGUONG_KEY = 'duyet_mua_nguong';
+/** Default theo v3.6 seed.js:260 — 5.000.000 đ (v5 seed chưa có key → core tự đảm). */
+const MUA_NGUONG_DEFAULT = '5000000';
+
+/**
+ * Đọc ngưỡng duyệt mua: INSERT-if-missing (ON CONFLICT DO NOTHING — idempotent,
+ * tx-safe, không giỡ mặt dữ liệu admin đã chỉnh) rồi SELECT. Hành vi như v3.6
+ * muaNguong(): Number(configGet(key, 0)) || 0 → giá trị rác/rỗng = 0 (ketoan
+ * không duyệt được đâu khi ngưỡng=0, đúng v3.6). Nhận cả pool (query) lẫn
+ * client (trong tx).
+ */
+async function muaNguong(
+  q: { query: (sql: string, params?: any[]) => Promise<{ rows: any[] }> }
+): Promise<number> {
+  await q.query(
+    'INSERT INTO config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+    [MUA_NGUONG_KEY, MUA_NGUONG_DEFAULT]
+  );
+  const r = await q.query('SELECT value FROM config WHERE key = $1', [MUA_NGUONG_KEY]);
+  const n = Number(r.rows[0]?.value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Duyệt / từ chối MỘT đề nghị mua (port v3.6 dmDecide dòng 229–245).
+ *  - tx + `SELECT ... FOR UPDATE`: 2 lệnh decide song song trên cùng DM tuần
+ *    tự hóa — kẻ đến sau thấy trang_thai mới (đã da_duyet/tu_choi) → bị chặn
+ *    ở nhánh 'chỉ duyệt khi chờ duyệt', không ghi đè người/ngày duyệt.
+ *  - Quyền (CẢ 2 nhánh quyet, đúng v3.6 — perm check TRƯỚC action branch):
+ *    role ∈ {admin, giamdoc} (can 'mua','duy', MATRIX+admin bypass) vô hạn;
+ *    ketoan chỉ khi tong ≤ ngưỡng `duyet_mua_nguong`; còn lại từ chối với
+ *    thông báo v3.6 (chứa 'Giám đốc'). KHÔNG mở rộng cho role kho/xuong —
+ *    giữ tẬP PHÁN QUYẾT v3.6, dù vào hàm qua gate kho.xem (xem block comment).
+ *  - 'duyet'  → trang_thai 'da_duyet' + nguoi_duyet/ngay_duyet (v3.6 ghi 2 cột
+ *    này DUY NHẤT ở nhánh duyệt — tu_choi không ghi, port nguyên).
+ *  - 'tu_choi'→ BẮT BUỘC ly_do không rỗng (W2b contract chặt hơn v3.6 cho phép
+ *    rỗng); ghi vào cột `ly_do` (v5 gộp ly_do_tu_choi+ghi_chu — schema comment).
+ *  - audit `dm_duyet` + activity CÙNG TX (auditTx): rollback → không để lại log ma.
+ *  - KHÔNG đụng tồn kho: nhập tồn là việc dmNhap (đúng v3.6 — duyệt chỉ đổi trạng thái).
+ */
+export async function dmDecide(
+  api: Api,
+  // style any: RPC JSON gửi primitive lạ — validate lại toàn bộ (quy ước hàm mới W1b+).
+  p: { id?: any; quyet?: any; ly_do?: any } = {}
+): Promise<{ ok: boolean; id?: string; trang_thai?: string; error?: string }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (typeof p?.id !== 'string' || !p.id.trim() || p.id.length > 12) {
+    return { ok: false, error: 'id phải là chuỗi 1..12 ký tự' };
+  }
+  // whitelist quyet — chặn giá trị lạ (pattern nhapKho `loai`): 'duyet' như
+  // v3.6 action='ok', 'tu_choi' như action khác của v3.6 nhưng CÓ ràng buộc ly_do.
+  if (p.quyet !== 'duyet' && p.quyet !== 'tu_choi') {
+    return { ok: false, error: 'quyet phải là duyet hoặc tu_choi' };
+  }
+  const lyDo = typeof p?.ly_do === 'string' ? p.ly_do.trim() : '';
+  if (p.ly_do !== undefined && p.ly_do !== null && p.ly_do !== '' && typeof p.ly_do !== 'string') {
+    return { ok: false, error: 'ly_do không hợp lệ' };
+  }
+  if (p.quyet === 'tu_choi' && !lyDo) {
+    return { ok: false, error: 'Từ chối phải kèm lý do (ly_do)' };
+  }
+  const id = p.id.trim();
+  return await withTransaction(async (client) => {
+    const d = (await client.query(
+      "SELECT id, sc_id, trang_thai, tong, is_test FROM dm WHERE id = $1 AND deleted_at = '' FOR UPDATE",
+      [id]
+    )).rows[0];
+    if (!d) return { ok: false, error: 'Không thấy đề nghị.' }; // v3.6 dòng 233
+    if (d.trang_thai !== 'cho_duyet') {
+      // v3.6 dòng 234 'Đề nghị đã xử lý.' + câu chữ hợp đồng W2b 'chỉ duyệt khi chờ duyệt'
+      return { ok: false, error: 'Đề nghị đã xử lý - chỉ duyệt khi chờ duyệt.' };
+    }
+    // ─── perm port NGUYÊN v3.6 checkLock('mua','duy') + canApproveMua ───
+    // can() thuần MATRIX static (lib/perm.ts không chạm DB) → an toàn trong tx.
+    const duyetKhongGuong = await api.perm.can(api.db, String(role), 'mua', 'duy'); // admin/giamdoc
+    const nguong = await muaNguong(client);
+    const duyetTrongGuong = String(role).toLowerCase() === 'ketoan' && Number(d.tong ?? 0) <= nguong;
+    if (!(duyetKhongGuong || duyetTrongGuong)) {
+      // v3.6 dòng 236 + hậu tố ngưỡng (hợp đồng W2b); chứa 'Giám đốc' để UI/agent định hướng.
+      return { ok: false, error: 'Chưa đủ quyền - cần Giám đốc duyệt giá trị lớn (> ngưỡng).' };
+    }
+    if (p.quyet === 'duyet') {
+      // v3.6: nguoi_duyet=meId(), ngay_duyet=db.today(); ly_do KHÔNG đụng tới.
+      await client.query(
+        "UPDATE dm SET trang_thai = 'da_duyet', nguoi_duyet = $2, ngay_duyet = $3 WHERE id = $1",
+        [id, u?.id ?? '', todayStr()]
+      );
+    } else {
+      // v3.6: 'tu_choi' + ly_do_tu_choi (v5: cột gộp `ly_do`); không ghi người/ngày duyệt.
+      await client.query(
+        "UPDATE dm SET trang_thai = 'tu_choi', ly_do = $2 WHERE id = $1",
+        [id, lyDo]
+      );
+    }
+    await auditTx(client, {
+      actor_id: u?.id, actor_role: role, hanh_dong: 'dm_duyet',
+      doi_tuong: 'dm', doi_tuong_id: id, sc_id: d.sc_id ?? undefined,
+      mo_ta: 'Đề nghị ' + id + (p.quyet === 'duyet' ? ' - Duyệt' : ' - Từ chối: ' + lyDo),
+      is_test: Number(d.is_test ?? 0),
+    });
+    invalidateDashCache(); // W3.2-wire (end-of-tx): DM duyệt/từ chối → dash đổi (chủ động)
+    return { ok: true, id, trang_thai: p.quyet === 'duyet' ? 'da_duyet' : 'tu_choi' };
+  });
+}
+
+/** GROUP cầu can_mua của SC theo vật tư — port v3.6 dmFromSC dòng 139–141.
+ *  v3.6 gom bằng JS loop: `dgia = v.gd_dk` chỉ gán LẦN ĐẦU cho mỗi vattu_id
+ *  (row gd_dk=0 vẫn là row đầu → dmCreate fallback cat.gia). v5 tương ứng:
+ *  (ARRAY_AGG(gd_dk ORDER BY id))[1] = giá trị row ĐẦU TIÊN (không lọc 0),
+ *  vt_gia phục vụ fallback (v3.6 dmCreate: dgia || cat.gia).
+ *  LỆCH có chủ đích: bỏ điều kiện `vattu_id>0` — cột v5 VARCHAR FK NOT NULL,
+ *  mọi dòng đều trỏ vật tư thật (điều kiện v3.6 chỉ để loại row manual chưa gán). */
+const SC_CAN_MUA_GROUP_SQL =
+  'SELECT s.vattu_id, SUM(s.so_luong)::float8 AS so_luong, ' +
+  '((ARRAY_AGG(s.gd_dk ORDER BY s.id))[1])::float8 AS gd_dk, ' +
+  'MAX(v.gia)::float8 AS vt_gia ' +
+  'FROM sc_vattu s JOIN vattu v ON v.id = s.vattu_id ' +
+  "WHERE s.sc_id = $1 AND s.tt = 'can_mua' AND s.deleted_at = '' " +
+  'GROUP BY s.vattu_id';
+
+/**
+ * Tạo DM từ nhu cầu mua của SC (port v3.6 dmFromSC dòng 137–157):
+ *  - gom sc_vattu `tt='can_mua'` theo vattu_id, SUM so_luong;
+ *  - một DM MỞ (`dm.sc_id` + 'cho_duyet') đã tồn tại → từ chối 'đang mở'
+ *    (v3.6 dò qua dm_mua_ct.sc_id per-line; v5 không có cột đó — link nằm ở
+ *    HEADER dm.sc_id, precedent W2a lệch #1);
+ *  - don_gia = gd_dk đầu tiên > 0, không có → giá vật tư (v3.6 dmCreate dòng
+ *    gia = Number(it.dgia) || cat.gia); tong = SUM(sl*don_gia);
+ *  - idempotent-safe: đọc trước tx (lấy số nhóm), TX lock TOÀN BỘ dòng
+ *    sc_vattu can_mua FOR UPDATE (2 lệnh dmFromSC cùng SC tuần tự — v3.6 nhờ
+ *    SQLite serialize, PG phải lock tay), re-check open-DM + re-group dưới
+ *    lock; nhóm tăng lên giữa 2 lần đọc → throw thử lại (không ghi nửa);
+ *  - v3.6 dòng 153–155 UPDATE bao_gia_ncc.dm_id: BỎ có chủ đích — schema v5
+ *    `bao_gia_ncc` không có cột dm_id (luồng OCR báo giá NCC đã chốt loại ở
+ *    v4.0 — AGENTS.md CẤM).
+ *  - audit dm_tao CÙNG tx; ly_do = ghi chú 'Vật tư cho phiếu sửa chữa <sc>'
+ *    (v3.6 dmCreate ghi_chu nguyên văn).
+ * Quyền vào: META ['kho','tao'] (v3.6 checkLock('mua','tao') — v5 gộp module
+ * kho/mua theo precedent W2a).
+ */
+export async function dmFromSC(
+  api: Api,
+  p: { sc_id?: any } = {}
+): Promise<{ ok: boolean; id?: string | null; so_dong?: number; tong?: number; error?: string }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (typeof p?.sc_id !== 'string' || !p.sc_id.trim() || p.sc_id.length > 12) {
+    return { ok: false, error: 'sc_id phải là chuỗi 1..12 ký tự' };
+  }
+  const scId = p.sc_id.trim();
+  const pre = (await api.db.query(SC_CAN_MUA_GROUP_SQL, [scId])).rows;
+  if (!pre.length) return { ok: false, error: 'Không còn vật tư cần mua.' }; // v3.6 dòng 140
+  const preOpen = (await api.db.query(
+    "SELECT id FROM dm WHERE sc_id = $1 AND trang_thai = 'cho_duyet' AND deleted_at = '' LIMIT 1",
+    [scId]
+  )).rows[0];
+  if (preOpen) return { ok: false, error: 'Đã có đề nghị mua đang mở cho SC này: ' + preOpen.id };
+  const isTest = role === 'admin' ? 1 : 0;
+  const dmId = await nextId('DM');
+  const ctIds: string[] = [];
+  for (let i = 0; i < pre.length; i++) ctIds.push(await nextId('DMCT'));
+  const lyDo = 'Vật tư cho phiếu sửa chữa ' + scId; // v3.6 dòng 150 ghi_chu nguyên văn
+  const ngay = todayStr();
+  const out = await withTransaction(async (client) => {
+    // 1) Lock toàn bộ dòng cầu can_mua của SC (aggregate KHÔNG đi kèm FOR UPDATE
+    //    được — tách SELECT khóa raw row rồi mới group trên chính connection).
+    await client.query(
+      "SELECT id FROM sc_vattu WHERE sc_id = $1 AND tt = 'can_mua' AND deleted_at = '' ORDER BY id FOR UPDATE",
+      [scId]
+    );
+    // 2) Re-check DM mở DƯỚI lock (đối thủ vừa tạo xong → đọc thấy ngay).
+    const open = (await client.query(
+      "SELECT id FROM dm WHERE sc_id = $1 AND trang_thai = 'cho_duyet' AND deleted_at = '' LIMIT 1",
+      [scId]
+    )).rows[0];
+    if (open) return { ok: false as const, error: 'Đã có đề nghị mua đang mở cho SC này: ' + open.id };
+    // 3) Re-group dưới lock: cầu CHỈ có thể THU HẸP (xuatKho/dmLock đánh dấu tt
+    //    ngoài flow này); rộng hơn nghĩa là thêm vt giữa 2 lần đọc → thiếu id
+    //    đã cấp → throw thử lại (pattern autoGenCuHong).
+    const re = (await client.query(SC_CAN_MUA_GROUP_SQL, [scId])).rows;
+    if (!re.length) return { ok: false as const, error: 'Không còn vật tư cần mua (đồng thời).' };
+    if (re.length > ctIds.length) throw new Error('SC thay đổi đồng thời, thử lại');
+    // HEADER trước, dòng sau — FK dm_chitiet.dm_id check tức thì trên PG
+    // (khác SQLite v3.6 defer); tong tính từ tập re đã chốt dưới lock.
+    let tong = 0;
+    const lines: Array<{ ctId: string; vattuId: string; sl: number; gia: number }> = [];
+    for (let i = 0; i < re.length; i++) {
+      const gia = Number(re[i].gd_dk ?? 0) || Number(re[i].vt_gia ?? 0);
+      tong += Number(re[i].so_luong) * gia;
+      lines.push({ ctId: ctIds[i], vattuId: re[i].vattu_id, sl: Number(re[i].so_luong), gia });
+    }
+    tong = Math.round(tong * 100) / 100; // NUMERIC(14,2) — làm tròn 2 chữ số như dmCreate
+    await client.query(
+      "INSERT INTO dm (id, sc_id, trang_thai, tong, nguoi_tao, ngay_tao, ly_do, is_test) VALUES ($1,$2,'cho_duyet',$3,$4,$5,$6,$7)",
+      [dmId, scId, tong, u?.id ?? null, ngay, lyDo, isTest]
+    );
+    for (const l of lines) {
+      await client.query(
+        'INSERT INTO dm_chitiet (id, dm_id, vattu_id, so_luong, don_gia) VALUES ($1,$2,$3,$4,$5)',
+        [l.ctId, dmId, l.vattuId, l.sl, l.gia]
+      );
+    }
+    await auditTx(client, {
+      actor_id: u?.id, actor_role: role, hanh_dong: 'dm_tao',
+      doi_tuong: 'dm', doi_tuong_id: dmId, sc_id: scId,
+      mo_ta: 'Tạo đề nghị mua ' + dmId + ' - ' + lyDo, is_test: isTest,
+    });
+    return { ok: true as const, id: dmId, so_dong: re.length, tong };
+  });
+  if (out.ok) invalidateDashCache(); // W3.2-wire (post-commit): DM mới gắn SC → dash đổi
+  return out;
+}
+
+/**
+ * Tự động lập DM bù tồn tối thiểu (port v3.6 dmAutoBu dòng 211–227):
+ *  - vật tư active ton_min>0 AND ton<ton_min → thiếu (ton_min − ton), giữ
+ *    thập phân vì cột NUMERIC(12,2) (v3.6 Math.max(0, ton_min−ton) nguyên văn);
+ *  - BỎ QUA vt đã nằm trong DM chưa khép: v3.6 chặn cả `cho_duyet` LẪN
+ *    'da_duyet' (DM đã duyệt chờ nhập = hàng đang về, đặt tiếp là mua lặp) —
+ *    port NGUYÊN tập 2 trạng thái (nhiệm vụ ghi 'cho_duyet' nhưng nguồn v3.6
+ *    đúng là IN ('cho_duyet','da_duyet')); LỆCH có chủ đích: thêm
+ *    `d.deleted_at = ''` (v3.6 sót — DM đã xóa mềm không được chặn đơn nữa);
+ *  - một DM nhiều dòng, KHÔNG sc_id (đúng v3.6), ly_do = ghi chú v3.6 nguyên
+ *    văn 'Tự động bổ sung tồn tối thiểu' (v3.6 để ở ghi_chu);
+ *  - không có gì thiếu → {ok:true,id:null,'Không cần bổ sung tồn.'} như v3.6;
+ *  - không lock (v3.6 serialize ngầm SQLite; 2 lệnh autoBu song song TUỲ THUỘC
+ *    có thể sinh 2 DM trùng — chấp nhận theo hành vi gốc, DM thừa bị dmDecide
+ *    từ chối được; ghi Production Check).
+ * Quyền vào: META ['kho','tao'] (v3.6 checkLock('mua','tao')).
+ */
+export async function dmAutoBu(
+  api: Api,
+  _p: Record<string, never> | any = {}
+): Promise<{ ok: boolean; id?: string | null; so_dong?: number; tong?: number; message?: string; error?: string }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  const short = (await api.db.query(
+    'SELECT v.id AS vattu_id, (v.ton_min - v.ton)::float8 AS thieu, v.gia::float8 AS gia ' +
+    'FROM vattu v ' +
+    "WHERE v.ton_min > 0 AND v.ton < v.ton_min AND v.deleted_at = '' " +
+    'AND NOT EXISTS (SELECT 1 FROM dm_chitiet c JOIN dm d ON d.id = c.dm_id ' +
+    "WHERE c.vattu_id = v.id AND c.deleted_at = '' AND d.deleted_at = '' " +
+    "AND d.trang_thai IN ('cho_duyet','da_duyet')) " +
+    'ORDER BY v.id'
+  )).rows.filter((r) => Number(r.thieu) > 0); // v3.6 `if (short <= 0) return;`
+  if (!short.length) return { ok: true, id: null, message: 'Không cần bổ sung tồn.' };
+  const dmId = await nextId('DM');
+  const ctIds: string[] = [];
+  for (let i = 0; i < short.length; i++) ctIds.push(await nextId('DMCT'));
+  const isTest = role === 'admin' ? 1 : 0;
+  const lyDo = 'Tự động bổ sung tồn tối thiểu';
+  const ngay = todayStr();
+  const tong = await withTransaction(async (client) => {
+    let acc = 0;
+    const lines: Array<{ ctId: string; vattuId: string; sl: number; gia: number }> = [];
+    for (let i = 0; i < short.length; i++) {
+      const s = short[i];
+      const gia = Number(s.gia ?? 0); // v3.6 dgia = v.gia (|| cat.gia — cùng nguồn)
+      acc += Number(s.thieu) * gia;
+      lines.push({ ctId: ctIds[i], vattuId: s.vattu_id, sl: Number(s.thieu), gia });
+    }
+    // HEADER trước, dòng sau — FK dm_chitiet.dm_id check tức thì (PG, như dmFromSC)
+    await client.query(
+      "INSERT INTO dm (id, sc_id, trang_thai, tong, nguoi_tao, ngay_tao, ly_do, is_test) VALUES ($1,NULL,'cho_duyet',$2,$3,$4,$5,$6)",
+      [dmId, Math.round(acc * 100) / 100, u?.id ?? null, ngay, lyDo, isTest]
+    );
+    for (const l of lines) {
+      await client.query(
+        'INSERT INTO dm_chitiet (id, dm_id, vattu_id, so_luong, don_gia) VALUES ($1,$2,$3,$4,$5)',
+        [l.ctId, dmId, l.vattuId, l.sl, l.gia]
+      );
+    }
+    await auditTx(client, {
+      actor_id: u?.id, actor_role: role, hanh_dong: 'dm_tao',
+      doi_tuong: 'dm', doi_tuong_id: dmId, sc_id: undefined,
+      mo_ta: 'Tạo đề nghị mua ' + dmId + ' - ' + lyDo, is_test: isTest,
+    });
+    return Math.round(acc * 100) / 100;
+  });
+  invalidateDashCache(); // W3.2-wire (post-commit): DM bù tồn (chủ động, dash không đếm DM)
+  return { ok: true, id: dmId, so_dong: short.length, tong };
+}
+
+// ─── Production Check (W2b) ───────────────────────────────────────────
+// 1) CON THIEU GI? — ✅ W2c ĐÓNG: dmDetail ĐÃ expose 3 cột mới
+//    (nguoi_duyet/ngay_duyet/ly_do); seed.ts chưa INSERT sẵn
+//    duyet_mua_nguong (core tự ON CONFLICT DO NOTHING — đạt cùng hiệu lực).
+// 2) RUI RO DAU? — Phán quyết duyệt TẬP TRUNG trong dmDecide (không dựa UI);
+//    gate kho.xem RỘNG hơn v3.6 (checkLock mua.duy) nhưng TẬP người được duyệt
+//    cuối cùng GIỐNG HỆT v3.6 (ketoan vẫn kẹt ngưỡng, kho/xuong bị từ chối
+//    ngay cả DM nhỏ). FOR UPDATE chống decision race; audit cùng tx chống log ma.
+// 3) DA CHAY TEST CHUA? — tsc --noEmit + jest suite dm_decide/dm_read/
+//    kho_phieu2tang/mcp/mcp_resources/rbac (kết quả dán trong báo cáo worker).
+// 4) DE XUAT TIEP? — (a) ✅ ĐÃ LÀM Ở W2c: dmNhap chặn khi trang_thai<>'da_duyet'
+//    (guard trong tx, SAU lock FOR UPDATE, TRƯỚC mọi UPDATE vattu.ton);
+//    (b) autoBu khóa chống trùng bằng advisory lock nếu
+//    thống kê dùng cho thấy trùng lặp thực tế.
+//
+// ─── Production Check (W2c — dmNhap guard + dmDetail cột duyệt) ────────
+// 1) CON THIEU GI? — message guard chốt 'Chỉ nhập khi đề nghị đã duyệt.'
+//    (tương đương v3.6 'Đề nghị mua chưa duyệt.' — kho.js:343; chọn câu
+//    diễn đạt CHỦ ĐỘNG vì guard nay chặn cả da_nhap/DM xóa-mềm, không chỉ
+//    "chưa"). UI /kho/dm (W2.6) chưa render cột duyệt — chỉ thêm field ở
+//    envelope, không ép phía hiển thị (quyền file W2.6, không đụng).
+// 2) RUI RO DAU? — Guard nằm SAU lock FOR UPDATE nên hai lệnh nhập song song
+//    trên cùng DM đã-duyet: tx đầu cộng ton + set 'da_nhap', tx sau thấy
+//    'da_nhap' → chặn (đóng luôn lỗ cộng-ton-lặp trước W2c). DM xóa-mềm còn
+//    'cho_duyet' → bị chặn (trước W2c nhập được — chặt hơn, đúng chiều v3.6).
+//    Không cònthrow nghiệp vụ: envelope {ok:false} → client phải soi result.ok
+//    (pattern W2a-W2b đã thống nhất). dmDetail thêm field — reader cũ bỏ qua
+//    key lạ, không vỡ shape đã chốt.
+// 3) DA CHAY TEST CHUA? — tsc=0 + jest dm_read/dm_decide/kho_phieu2tang/
+//    asset_gttv/sc_totals (server :3000, số liệu dán trong báo cáo worker).
+// 4) DE XUAT TIEP? — W0 suite gọi dmNhap trên DM CHƯA duyệt sẽ đỏ trở lại
+//    (kho_tonkho TC6, kho_race test-3 — CẦN thêm bước duyệt trước nhập;
+//    nằm NGOÀI phạm vi file W2c → đã báo coordinator. rpc.test.ts vẫn xanh
+//    vì chỉ assertion dispatch-level). Có thể thêm cột 'ref_dm' thật vào
+//    nhap_xuat nếu về sau cần liên kết chặt hơn dấu vết ly_do.
+// ═════════════════════════════════════════════════════════════════════

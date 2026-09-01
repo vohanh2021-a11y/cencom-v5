@@ -7,6 +7,8 @@
  * ['kho','xem'] dành cho W1b-reg/W1.6f) → test GOI HAM CORE TRUC TIEP qua
  * buildApi(actorKho) + db, pattern kế thừa asset_gttv.test.ts (không HTTP).
  * Riêng nhapKho/dmNhap/dmCreate gọi thẳng core như bản HTTP dispatch sẽ gọi.
+ * W2c: dmNhap siết guard 'da_duyet' (port v3.6) → TC6 lật trạng thái DM bằng
+ * SQL tối thiểu TRƯỚC khi nhập (quyền duyệt test riêng ở dm_decide.test.ts (7)).
  *
  * Fixture tạo bằng role 'kho' → is_test=0 (quy tắc isTest của kho.ts: chỉ admin
  * gắn 1) — tonKho lọc is_test=0 NÊN fixture bắt buộc is_test=0; phân tách khỏi seed
@@ -226,7 +228,12 @@ describe('W1b — tonKho + vattu_gia_lich_su + ghiGiaLichSu + giaLichSuList (cor
         { vattu_id: vtE0, so_luong: 1, don_gia: 0 },    // giá 0 → bỏ
       ],
     });
-    await dmNhap(apiKho, { dm_id: dm.id });
+    //W2c: dmNhap CHỈ nhận DM 'da_duyet' (guard v3.6 trong core) → lật trạng thái
+    //bằng SQL thẳng, TỐI THIỂU: quyền duyệt (dmDecide ngươn-giám-ngã) đã được
+    //test riêng ở dm_decide.test.ts (7); ở đây nghiệm ý đồ "nhập DM ghi mốc giá".
+    await db.query("UPDATE dm SET trang_thai = 'da_duyet' WHERE id = $1", [dm.id]);
+    const nhap = await dmNhap(apiKho, { dm_id: dm.id });
+    expect(nhap.ok).toBe(true); // nếu guard đổi hành vi → fail ngay tại đây, không âm thầm
 
     const logsE = await logsOf(vtE);
     expect(logsE).toHaveLength(1);

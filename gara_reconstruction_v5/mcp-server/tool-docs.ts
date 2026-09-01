@@ -12,6 +12,7 @@ import { PART1 } from './tool-docs.part1';
 import { PART2 } from './tool-docs.part2';
 import { PART3 } from './tool-docs.part3';
 import { PART4 } from './tool-docs.part4';
+import { PART5 } from './tool-docs.part5';
 
 export interface ToolDoc {
   title: string;
@@ -24,4 +25,4 @@ export interface ToolDoc {
 
 export type ToolDocs = Record<string, ToolDoc>;
 
-export const TOOL_DOCS: ToolDocs = { ...PART1, ...PART2, ...PART3, ...PART4 };
+export const TOOL_DOCS: ToolDocs = { ...PART1, ...PART2, ...PART3, ...PART4, ...PART5 };

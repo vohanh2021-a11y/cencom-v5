@@ -15,22 +15,46 @@ interface NavItem {
 }
 
 const MENU: Record<string, NavItem[]> = {
+  // 'Mua sắm' (/kho/dm) — W2.6. Trang xem/duyệt DM đề nghị mua, fn dmList
+  // mang meta ['kho','xem'] (MATRIX: kho/giamdoc/xuong cùng có kho:xem; admin
+  // bypass all). Hiện cho kho|giamdoc|admin|xuong; KHÔNG hiện cho ketoan
+  // (nghiệp vụ mua sắm thuộc kho — ketoan vẫn có kho:xem nhưng link chủ
+  // đích giới hạn theo plan, tránh rối menu).
+  //
+  // 'Bảng xe' (/sc/kanban) — W3.8. Cổng thật của fn dashboardAll: sc.xem +
+  // CHẶN CỨNG ketoan ngay trong core (lib/core/xuong.ts — port v3.6). Nên
+  // link hiện đúng cho admin|giamdoc|xuong|kho (MATRIX sc.xem + admin bypass;
+  // 'kho' có sc.xem → VÀO ĐƯỢC dashboard, lệch v3.6 có chủ đích đã ghi ở
+  // header xuong.ts). KETOAN KHÔNG CÓ LINK — không phải vì UI tự suy diễn mà
+  // vì core trả 403: để link sẽ bấm-vào-màn-'Không-có-quyền' vô nghĩa.
   giamdoc: [
     { label: 'Dashboard', href: '/' },
     { label: 'SC', href: '/sc' },
+    { label: 'Bảng xe', href: '/sc/kanban' },
     { label: 'Báo giá', href: '/baogia' },
     { label: 'Hồ sơ', href: '/hoso' },
     { label: 'Kho', href: '/kho' },
+    { label: 'Mua sắm', href: '/kho/dm' },
   ],
   kho: [
     { label: 'Kho', href: '/kho' },
+    { label: 'Mua sắm', href: '/kho/dm' },
     { label: 'Xe', href: '/xe' },
+    // W3.8: kho có sc.xem trong MATRIX (lib/perm.ts) → dashboardAll lõi cho
+    // phép → hiện bảng kanban (menu kho trước đây không có SC list, giữ
+    // nguyên — chỉ thêm đúng link board mới theo task).
+    { label: 'Bảng xe', href: '/sc/kanban' },
   ],
   xuong: [
     { label: 'SC', href: '/sc' },
+    { label: 'Bảng xe', href: '/sc/kanban' },
+    { label: 'Mua sắm', href: '/kho/dm' },
     { label: 'Xe', href: '/xe' },
   ],
   ketoan: [
+    // KHÔNG thêm 'Bảng xe': dashboardAll chặn cứng role ketoan (403 trong
+    // lib/core/xuong.ts, port v3.6 dòng 122–124) — ẩn link là nhất quán với
+    // phán quyết server, tránh bấm vào màn 'Không có quyền'.
     { label: 'Báo giá', href: '/baogia' },
     { label: 'Hồ sơ', href: '/hoso' },
     { label: 'SC', href: '/sc' },
@@ -38,9 +62,11 @@ const MENU: Record<string, NavItem[]> = {
   admin: [
     { label: 'Dashboard', href: '/' },
     { label: 'SC', href: '/sc' },
+    { label: 'Bảng xe', href: '/sc/kanban' },
     { label: 'Báo giá', href: '/baogia' },
     { label: 'Hồ sơ', href: '/hoso' },
     { label: 'Kho', href: '/kho' },
+    { label: 'Mua sắm', href: '/kho/dm' },
     { label: 'Xe', href: '/xe' },
   ],
 };

@@ -9,12 +9,15 @@
  *  3) dmNhap (3 items, +6) chạy SONG SONG với 1 xuatKho sl=12 trên cùng vattu
  *     ton=10 → bất kể thứ tự commit, KHÔNG BAO GIỜ âm tồn và bất biến
  *     ton_final = 10 + 6 − (12 nếu xuất thành công) nghiệm đúng.
+ *     (W2c: dmNhap có gate 'da_duyet' → DM được giamdoc dmDecide DUYỆT trước khi
+ *     vào race; giả định cũ "nhập không bao giờ bị chặn" nay hiểu đúng là
+ *     "nhập DM ĐÃ DUYỆT không bao giờ bị chặn vì tồn kho — chỉ tăng".)
  *
  * Gọi qua HTTP /api/rpc (same server + same pool như production → mới tạo được
  * độ tranh chấp thật). Pattern cookie kế thừa business.test.ts.
  */
 import request from 'supertest';
-import { getAdminToken, getKhoToken } from './setup';
+import { getAdminToken, getGiamdocToken, getKhoToken } from './setup';
 import { db } from '../../lib/db';
 
 const BASE = process.env.TEST_BASE_URL || 'http://localhost:3000';
@@ -120,12 +123,18 @@ describe('W0.1 Race condition tồn kho — xuatKho/nhapKho/dmNhap atomic', () =
     expect(dmRes.body.ok).toBe(true);
     const dmId: string = dmRes.body.result.id;
 
+    //W2c: dmNhap gate — CHỈ nhập DM 'da_duyet' (guard v3.6). Duyệt TRƯỚC khi vào
+    //race để giữ đúng ý đồ test-3: tranh chấp NHẬP (+6) vs XUẤT (−12) trên row-lock
+    //tồn kho, không phải tranh chấp với chuỗi duyệt (duyệt đã test ở dm_decide (7)).
+    const apRes = await rpc(getGiamdocToken(), 'dmDecide', { id: dmId, quyet: 'duyet' });
+    expect(apRes.body.ok).toBe(true);
+
     const [dmNhapRes, xuatRes] = await Promise.all([
       rpc(getKhoToken(), 'dmNhap', { dm_id: dmId }),
       rpc(getKhoToken(), 'xuatKho', { vattu_id: vt2, so_luong: 12, ly_do: 'race-dm' }),
     ]);
 
-    expect(dmNhapRes.body.ok).toBe(true); // nhập không bao giờ bị chặn (chỉ tăng)
+    expect(dmNhapRes.body.ok).toBe(true); //đã duyệt qua gate → nhập không bị chặn vì tồn (chỉ tăng)
     //Xuất CHỈ ok khi tại THỜI ĐIỂM ĐOẠT ROW-LOCK tồn đã ≥ 12 — không có lịch trình
     //nào để "cả hai cùng thắng gây âm".
     if (xuatRes.body.ok !== true) expect(String(xuatRes.body.error)).toMatch(/^Thiếu tồn kho/);

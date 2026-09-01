@@ -3,6 +3,7 @@ import { row, run, nextId } from '../db';
 import { logActivity } from './activity';
 import { checkHoSo } from './ho_so';
 import { createScopedLogger } from '../observability';
+import { invalidateDashCache } from './xuong'; // W3.2-wire: ghi xong luồng SC → lạnh dashboard xưởng
 
 const log = createScopedLogger('sc');
 
@@ -37,6 +38,26 @@ function optionalNumber(v: any, label: string): void {
   if (v !== undefined && v !== null && v !== '' && !Number.isFinite(Number(v))) {
     throw new Error(label + ' không hợp lệ');
   }
+}
+
+/**
+ * Giá/số lượng không âm khi có cung cấp — trả số đã kiểm tra (W3.3A).
+ * v3.6 chỉ Number(patch.x) không chặn âm (sc.js:298–299) → tiền vào SUM có thể
+ * âm, gian lận tong/hồ sơ bước 8. v5 siết: NaN/Infinity/âm → error (0 hợp lệ
+ * — "chưa báo giá").Đây là input-validation, KHÔNG đổi công thức tính.
+ */
+function clampNonNegative(v: any, label: string): number {
+  if (v === undefined || v === null || v === '') return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) throw new Error(label + ' không hợp lệ');
+  return n;
+}
+
+/** id VARCHAR(12) 'PREFIX-000001' — chặn xâu rác khi HTTP không qua zod (MCP mới có zod) */
+function requireItemId(v: any, label: string): string {
+  const s = requireStr(v, label);
+  if (s.length > 12) throw new Error(label + ' không hợp lệ');
+  return s;
 }
 
 async function getSc(api: Api, id: string): Promise<any> {
@@ -134,6 +155,7 @@ export async function scCreate(api: Api, p: { xe_id: string; ngay: string }): Pr
   } catch (e: any) {
     log.logError('scCreate: logActivity failed', e, { id, sc_id: id });
   }
+  invalidateDashCache(); // W3.2-wire: phiếu mới (de_xuat) vào cột kanban → lạnh dash
   return { id };
 }
 
@@ -175,12 +197,13 @@ export async function scAddCongViec(
   } catch (e: any) {
     log.logError('scAddCongViec: logActivity failed', e, { id: scId, sc_id: scId });
   }
+  invalidateDashCache(); // W3.2-wire: tong/recalc đổi (cv thêm)
   return { id };
 }
 
 export async function scAddVatTu(
   api: Api,
-  p: { sc_id: string; vattu_id: string; so_luong: number }
+  p: { sc_id: string; vattu_id: string; so_luong: number; don_gia?: number; gd_dk?: number }
 ): Promise<{ id: string }> {
   const u = api.auth.current();
   const role = u?.role;
@@ -189,10 +212,18 @@ export async function scAddVatTu(
   const vattuId = requireStr(p?.vattu_id, 'vattu_id');
   const soLuong = requirePositiveNumber(p?.so_luong, 'so_luong');
   await getSc(api, scId);
+  // W3.3A ĐÓNG WIRESH_PRICE: nhận giá đăng ký ngay khi thêm dòng.
+  //  - UI app/(app)/sc/page.tsx (W2.5, dòng 390–395) gửi key `don_gia` (alias của
+  //    `gd_dk` — tên cột v5). Core chấp nhận CẢ HAI: gd_dk = p.gd_dk ?? p.don_gia ?? 0.
+  //  - KHÁC v3.6 scVtAdd (sc.js:349 `Number(rec.gd_dk) || (cat ? cat.gia : 0)`):
+  //    v5 KHÔNG fallback giá danh mục vattu.gia — hành vi mặc định 0 đã được chốt
+  //    ở fixture W0.2 (sc_totals.test.ts dòng 11–14) và fallback sẽ làm sai lệch
+  //    các test đó. Giá = 0 ⟺ chưa báo giá, đúng thông điệp "dòng chưa giá".
+  const gdDk = clampNonNegative(p?.gd_dk ?? p?.don_gia, 'gd_dk');
   const id = await nextId('VT');
   await run(
-    'INSERT INTO sc_vattu (id, sc_id, vattu_id, so_luong) VALUES ($1,$2,$3,$4)',
-    [id, scId, vattuId, soLuong]
+    'INSERT INTO sc_vattu (id, sc_id, vattu_id, so_luong, gd_dk) VALUES ($1,$2,$3,$4,$5)',
+    [id, scId, vattuId, soLuong, gdDk]
   );
   // W0.2: cập nhật tổng tiền SC từ dòng sau khi INSERT vật tư
   await recalcScTotals(scId);
@@ -209,6 +240,7 @@ export async function scAddVatTu(
   } catch (e: any) {
     log.logError('scAddVatTu: logActivity failed', e, { id: scId, sc_id: scId });
   }
+  invalidateDashCache(); // W3.2-wire: tong/recalc đổi (vt thêm)
   return { id };
 }
 
@@ -235,6 +267,7 @@ export async function scBatDauSua(api: Api, p: { sc_id: string }): Promise<{ ok:
   } catch (e: any) {
     log.logError('scBatDauSua: logActivity failed', e, { sc_id: scId });
   }
+  invalidateDashCache(); // W3.2-wire: de_xuat→dang_sua (dổi cột kanban) → lạnh dash
   return { ok: true };
 }
 
@@ -261,6 +294,7 @@ export async function scHoanThanh(api: Api, p: { sc_id: string }): Promise<{ ok:
   } catch (e: any) {
     log.logError('scHoanThanh: logActivity failed', e, { sc_id: scId });
   }
+  invalidateDashCache(); // W3.2-wire: trang_thai→da_hoan (KPI/kanban đổi)
   return { ok: true };
 }
 
@@ -289,6 +323,7 @@ export async function scTuChoi(api: Api, p: { sc_id: string; ly_do: string }): P
   } catch (e: any) {
     log.logError('scTuChoi: logActivity failed', e, { sc_id: scId });
   }
+  invalidateDashCache(); // W3.2-wire: trang_thai→tu_choi
   return { ok: true };
 }
 
@@ -332,5 +367,348 @@ export async function scQuyetToan(api: Api, p: { sc_id: string }): Promise<{ ok:
     log.logError('scQuyetToan: logActivity failed', e, { sc_id: scId });
   }
   log.logInfo('scQuyetToan: success', { sc_id: scId, actor: u?.id });
+  invalidateDashCache(); // W3.2-wire: trang_thai→da_quyet
   return { ok: true };
+}
+
+/* ═══════════════════ W3.3A — DÒNG CÔNG VIỆC / VẬT TƯ + DEADLINE + THỢ ═══════════════════
+ * Port v3.6 server/sc.js scWorkSet/scWorkDel/scVtUpd/scVtDel/scSetDeadline +
+ * handlers.js thoList. LỆCH CÓ CHỦ ĐÍCH (chốt theo spec W3.3A, ghi nhận để review):
+ *  1) GATE: v3.6 ACTIVE_STATUS = ['de_xuat','da_duyet','dang_sua'] (sc.js:20) và
+ *     scVtUpd/scWorkDel/scVtDel THẬM CHÍ không gate trạng thái phiếu. v5 siết hết
+ *     4 fn dòng về 'de_xuat' ("chỉ sửa khi đề xuất") — vì tiến độ khi dang_sua đi
+ *     qua đường khác (dashboardAll/kanban), không mở ngoặc sửa kế hoạch đang chạy.
+ *     Điều kiện lồng v3.6 "don_gia chỉ đổi khi de_xuat" (sc.js:299) thành hệ quả
+ *     hiển nhiên của gate mới — giữ nguyên chú thích tại chỗ.
+ *  2) TÊN CỘT theo schema v5: v3.6 `ten`→mo_ta, không có cột `thanh` (thành tiền
+ *     tính tay trong SUM của recalcScTotals — UPDATE thanh=… của v3.6 không còn),
+ *     không có `gio_cong`/`ghi_chu` ở sc_congviec, không có `tho_id` ở sc_vattu →
+ *     các field đó KHÔNG được nhận (khác v3.6 — lean schema đã chốt trước đó).
+ *  3) ENUM tt dòng công việc: v3.6 'todo|dang|hoan' → v5 CHECK là
+ *     'cho|dang|hoan' (db/schema.sql dòng 50). Nhận 'todo' như alias tương thích
+ *     lùi của 'cho' khi patch (doc + client cũ v3.6), giá trị ghi xuống là 'cho'.
+ *  4) recalc ScUỐI mọi hàm sửa dòng (W0.2 recalcScTotals — 1 UPDATE atomic),
+ *     sc_id SUY RA TỪ DÒNG (args chỉ có id dòng) → không thể recalc nhầm phiếu.
+ */
+
+/** Trạng thái dòng công việc hợp lệ theo CHECK v5 (sc_congviec.tt). 'todo' chỉ là alias nạp đầu vào. */
+const TT_DONG_CV = ['cho', 'dang', 'hoan'];
+
+/** Đọc dòng CV + phiếu cha; gate 'chỉ sửa khi de_xuat'. Trả {err} dạng envelope nội bộ. */
+async function loadWorkLine(scItemId: string): Promise<{ cv: any; sc: any }> {
+  const cv = await row('SELECT * FROM sc_congviec WHERE id=$1 AND deleted_at=$2', [scItemId, '']);
+  if (!cv) throw new Error('Không thấy hạng mục công việc.'); // v3.6 sc.js:296
+  const sc = await row('SELECT * FROM sc WHERE id=$1 AND deleted_at=$2', [cv.sc_id, '']);
+  if (!sc) throw new Error('Không tìm thấy phiếu sửa chữa');
+  if (sc.trang_thai !== 'de_xuat') {
+    throw new Error('Chỉ sửa khi đề xuất.'); // gate v5 (v3.6: ACTIVE_STATUS — xem comment block)
+  }
+  return { cv, sc };
+}
+
+/** Đọc dòng VT + phiếu cha; gate như loadWorkLine. */
+async function loadVatTuLine(vtItemId: string): Promise<{ vt: any; sc: any }> {
+  const vt = await row('SELECT * FROM sc_vattu WHERE id=$1 AND deleted_at=$2', [vtItemId, '']);
+  if (!vt) throw new Error('Không thấy vật tư.'); // v3.6 sc.js:359
+  const sc = await row('SELECT * FROM sc WHERE id=$1 AND deleted_at=$2', [vt.sc_id, '']);
+  if (!sc) throw new Error('Không tìm thấy phiếu sửa chữa');
+  if (sc.trang_thai !== 'de_xuat') {
+    throw new Error('Chỉ sửa khi đề xuất.');
+  }
+  return { vt, sc };
+}
+
+/**
+ * scWorkSet — sửa MỘT dòng công việc trên phiếu đang de_xuat (v3.6 sc.js:291–316).
+ * Field nhận theo cột v5: mo_ta (alias ten), so_luong, don_gia, tho_id, tt, stt,
+ * nguyen_nhan, loai_xu_ly. don_gia: v3.6 chỉ đổi khi de_xuat (sc.js:299) — gate ở
+ * đây đã bảo đảm điều đó. CUỐI: recalcScTotals (thay v3.6 UPDATE thanh + recalc —
+ * v5 không có cột thanh).
+ */
+export async function scWorkSet(
+  api: Api,
+  p: {
+    id: string;
+    mo_ta?: string;
+    ten?: string;
+    so_luong?: number;
+    don_gia?: number;
+    tho_id?: string;
+    tt?: string;
+    stt?: number;
+    nguyen_nhan?: string;
+    loai_xu_ly?: string;
+  }
+): Promise<{ ok: true }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (!(await api.perm.can(api.db, role!, 'sc', 'sua'))) throw new Error('403');
+  const itemId = requireItemId(p?.id, 'id');
+  const { cv, sc } = await loadWorkLine(itemId);
+
+  const sets: string[] = [];
+  const params: any[] = [];
+  const add = (col: string, val: any): void => {
+    params.push(val);
+    sets.push(col + '=$' + params.length);
+  };
+
+  const moTa = p.mo_ta ?? p.ten; // v3.6 'ten' → cột v5 'mo_ta'
+  if (moTa !== undefined) {
+    optionalStr(moTa, 'mo_ta');
+    add('mo_ta', String(moTa));
+  }
+  if (p.so_luong !== undefined) add('so_luong', clampNonNegative(p.so_luong, 'so_luong'));
+  // v3.6: don_gia CHỈ đổi khi de_xuat — gate phía trên đã chốt de_xuat, giữ nguyên ngữ nghĩa.
+  if (p.don_gia !== undefined) add('don_gia', clampNonNegative(p.don_gia, 'don_gia'));
+  if (p.tho_id !== undefined) {
+    optionalStr(p.tho_id, 'tho_id');
+    const thoId = String(p.tho_id ?? '');
+    if (thoId.length > 12) throw new Error('tho_id không hợp lệ');
+    add('tho_id', thoId);
+  }
+  if (p.tt !== undefined) {
+    optionalStr(p.tt, 'tt');
+    let tt = String(p.tt);
+    if (tt === 'todo') tt = 'cho'; // alias tương thích lùi enum v3.6 → 'cho' (v5 CHECK)
+    if (!TT_DONG_CV.includes(tt)) throw new Error('Trạng thái công việc sai.'); // v3.6 sc.js:302
+    add('tt', tt);
+  }
+  if (p.stt !== undefined) {
+    optionalNumber(p.stt, 'stt');
+    add('stt', Math.trunc(Number(p.stt)) || 0); // v3.6 Number()||0 — stt nguyên
+  }
+  if (p.nguyen_nhan !== undefined) {
+    optionalStr(p.nguyen_nhan, 'nguyen_nhan');
+    add('nguyen_nhan', String(p.nguyen_nhan));
+  }
+  if (p.loai_xu_ly !== undefined) {
+    optionalStr(p.loai_xu_ly, 'loai_xu_ly');
+    const lxl = String(p.loai_xu_ly);
+    if (lxl !== '' && !LOAI_XU_LY.includes(lxl)) {
+      throw new Error('Loại xử lý sai (thay_moi/sua_chua/bao_duong/khac).'); // v3.6:266 message — enum v5
+    }
+    add('loai_xu_ly', lxl === '' ? null : lxl); // '' = xóa nhãn (cột nullable + CHECK → NULL)
+  }
+
+  if (sets.length) {
+    params.push(cv.id, sc.id);
+    await run(
+      'UPDATE sc_congviec SET ' + sets.join(', ') + ' WHERE id=$' + (params.length - 1) + ' AND sc_id=$' + params.length + " AND deleted_at=''",
+      params
+    );
+  }
+  // CUỐI: tính lại tổng (đọc từ CHÍNH dòng suy ra sc_id, không tin args)
+  await recalcScTotals(String(sc.id));
+  try {
+    await logActivity(api.db, {
+      actor_id: u?.id,
+      actor_role: role,
+      hanh_dong: 'sc_work_set', // v3.6 audit('work','sc_congviec',…,'Cập nhật công việc')
+      doi_tuong: 'sc_congviec',
+      doi_tuong_id: itemId,
+      sc_id: String(sc.id),
+      mo_ta: 'Cập nhật công việc',
+    });
+  } catch (e: any) {
+    log.logError('scWorkSet: logActivity failed', e, { id: itemId, sc_id: sc.id });
+  }
+  invalidateDashCache(); // W3.2-wire: % hoàn thành dòng + recalc (tt/so_luong/don_gia) đổi
+  return { ok: true };
+}
+
+/**
+ * scWorkDel — xóa MỀM dòng công việc (v3.6 sc.js:333–338 db.softDelete).
+ * v3.6 KHÔNG gate trạng thái; v5 siết 'chỉ sửa khi de_xuat' (đừng xóa dòng của
+ * phiếu đang chạy — mất dấu vết nghiệm thu). deleted_at = timestamp ISO (schema
+ * v5 TEXT — cùng quy ước kho.ts dmDelete:1258).
+ */
+export async function scWorkDel(api: Api, p: { id: string }): Promise<{ ok: true }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (!(await api.perm.can(api.db, role!, 'sc', 'sua'))) throw new Error('403');
+  const itemId = requireItemId(p?.id, 'id');
+  const { cv, sc } = await loadWorkLine(itemId);
+  await run(
+    `UPDATE sc_congviec SET deleted_at=$2 WHERE id=$1 AND sc_id=$3 AND deleted_at=''`,
+    [itemId, new Date().toISOString(), sc.id]
+  );
+  void cv; // cv đã được check tồn tại + gate ở loadWorkLine
+  await recalcScTotals(String(sc.id));
+  try {
+    await logActivity(api.db, {
+      actor_id: u?.id,
+      actor_role: role,
+      hanh_dong: 'sc_work_del',
+      doi_tuong: 'sc_congviec',
+      doi_tuong_id: itemId,
+      sc_id: String(sc.id),
+      mo_ta: 'Xóa dòng công việc',
+    });
+  } catch (e: any) {
+    log.logError('scWorkDel: logActivity failed', e, { id: itemId, sc_id: sc.id });
+  }
+  invalidateDashCache(); // W3.2-wire: soft-delete dòng → recalc đổi
+  return { ok: true };
+}
+
+/**
+ * scVtUpd — sửa dòng vật tư (v3.6 sc.js:356–373). Field v5 theo cột thật:
+ * so_luong, gd_dk (giá đăng ký/báo giá).
+ *  - gd_tt (giá thực tế sau nghiệm thu): v3.6 cho sửa qua scVtUpd; v5 KHÔNG mở ở
+ *    đây — gd_tt thuộc luồng nghiệm thu/kho (đang wire ở W3 hook khác), siết để
+ *    de_xuat không tự đặt giá quyết toán (gatekeeper: chặn tự nâng tiền).
+ *  - "gd_tt>0 cấm sửa gd_dk?": v3.6 KHÔNG cấm (sc.js:362 update tự do); công thức
+ *    CASE WHEN gd_tt>0 THEN gd_tt ELSE gd_dk khiến gd_dk không ảnh hưởng tổng khi
+ *    đã có giá thực. v5 giữ đúng hành vi đó (recalcScTotals đã CASE) → không them
+ *    lệnh cấm.
+ *  - stt/nguyen_nhan/loai_xu_ly/bao_gia_id/tho_id: v3.6 có (trừ tho_id) nhưng
+ *    schema v5 sc_vattu KHÔNG có cột stt/nguyen_nhan/bao_gia_id/tho_id → không nhận.
+ * CUỐI: recalc (v3.6 UPDATE thanh=… + recalc → v5 gộp vào recalc, không có cột thanh).
+ */
+export async function scVtUpd(
+  api: Api,
+  p: { id: string; so_luong?: number; gd_dk?: number }
+): Promise<{ ok: true }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (!(await api.perm.can(api.db, role!, 'sc', 'sua'))) throw new Error('403');
+  const itemId = requireItemId(p?.id, 'id');
+  const { vt, sc } = await loadVatTuLine(itemId);
+
+  const sets: string[] = [];
+  const params: any[] = [];
+  if (p.so_luong !== undefined) {
+    params.push(clampNonNegative(p.so_luong, 'so_luong'));
+    sets.push('so_luong=$' + params.length);
+  }
+  if (p.gd_dk !== undefined) {
+    params.push(clampNonNegative(p.gd_dk, 'gd_dk'));
+    sets.push('gd_dk=$' + params.length);
+  }
+  if (sets.length) {
+    params.push(vt.id, sc.id);
+    await run(
+      'UPDATE sc_vattu SET ' + sets.join(', ') + ' WHERE id=$' + (params.length - 1) + ' AND sc_id=$' + params.length + " AND deleted_at=''",
+      params
+    );
+  }
+  await recalcScTotals(String(sc.id));
+  try {
+    await logActivity(api.db, {
+      actor_id: u?.id,
+      actor_role: role,
+      hanh_dong: 'sc_vt_set',
+      doi_tuong: 'sc_vattu',
+      doi_tuong_id: itemId,
+      sc_id: String(sc.id),
+      mo_ta: 'Cập nhật vật tư',
+    });
+  } catch (e: any) {
+    log.logError('scVtUpd: logActivity failed', e, { id: itemId, sc_id: sc.id });
+  }
+  invalidateDashCache(); // W3.2-wire: recalc đổi (so_luong/gd_dk)
+  return { ok: true };
+}
+
+/**
+ * scVtDel — xóa MỀM dòng vật tư (v3.6 sc.js:375–380). v5 gate de_xuat như scWorkDel.
+ */
+export async function scVtDel(api: Api, p: { id: string }): Promise<{ ok: true }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (!(await api.perm.can(api.db, role!, 'sc', 'sua'))) throw new Error('403');
+  const itemId = requireItemId(p?.id, 'id');
+  const { vt, sc } = await loadVatTuLine(itemId);
+  await run(
+    `UPDATE sc_vattu SET deleted_at=$2 WHERE id=$1 AND sc_id=$3 AND deleted_at=''`,
+    [String(vt.id), new Date().toISOString(), sc.id]
+  );
+  await recalcScTotals(String(sc.id));
+  try {
+    await logActivity(api.db, {
+      actor_id: u?.id,
+      actor_role: role,
+      hanh_dong: 'sc_vt_del',
+      doi_tuong: 'sc_vattu',
+      doi_tuong_id: itemId,
+      sc_id: String(sc.id),
+      mo_ta: 'Xóa dòng vật tư',
+    });
+  } catch (e: any) {
+    log.logError('scVtDel: logActivity failed', e, { id: itemId, sc_id: sc.id });
+  }
+  invalidateDashCache(); // W3.2-wire: soft-delete dòng VT → recalc đổi
+  return { ok: true };
+}
+
+/**
+ * scSetDeadline — hẹn trả xe (v3.6 sc.js:274–289 scSetDeadline(id, ngay)).
+ * v3.6 ghi phieu_sua.ngay_du_kien → v5 ghi sc.han_tra_xe (cột mới W3.3A).
+ * Gate trung thành v3.6: role ['xuong','giamdoc','admin'] (sc.js:276) + chặn
+ * trạng thái ['de_xuat','tu_choi','da_quyet'] (sc.js:281: chưa duyệt/sau chốt
+ * thì không đặt hẹn) → chỉ dang_sua|da_hoan được hẹn.
+ * han_tra_xe: '' hợp lệ (xóa hẹn — v3.6 String(ngay||'')), còn lại bắt buộc
+ * YYYY-MM-DD (sc.js:285). KHÔNG recalc — không đụng tiền.
+ */
+const DEADLINE_ROLES = ['xuong', 'giamdoc', 'admin'];
+const TT_LABEL_V5: Record<string, string> = {
+  de_xuat: 'đề xuất',
+  dang_sua: 'đang sửa',
+  da_hoan: 'đã hoàn thành',
+  da_quyet: 'đã quyết toán',
+  tu_choi: 'từ chối',
+};
+export async function scSetDeadline(
+  api: Api,
+  p: { id: string; han_tra_xe?: string }
+): Promise<{ ok: true; han_tra_xe: string }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (!(await api.perm.can(api.db, role!, 'sc', 'sua'))) throw new Error('403');
+  if (!role || !DEADLINE_ROLES.includes(role)) {
+    throw new Error('Chỉ quản lý xưởng đặt ngày hẹn trả xe.'); // v3.6 sc.js:277
+  }
+  const scId = requireItemId(p?.id, 'id');
+  const sc = await getSc(api, scId);
+  if (['de_xuat', 'tu_choi', 'da_quyet'].includes(sc.trang_thai)) {
+    throw new Error('Phiếu đang ' + (TT_LABEL_V5[sc.trang_thai] || sc.trang_thai) + ' — không đặt được ngày hẹn.');
+  }
+  optionalStr(p?.han_tra_xe, 'han_tra_xe');
+  const d = String(p?.han_tra_xe ?? '').trim();
+  if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error('Ngày hẹn phải dạng YYYY-MM-DD.'); // v3.6 sc.js:285
+  await run(`UPDATE sc SET han_tra_xe=$2 WHERE id=$1 AND deleted_at=''`, [scId, d]);
+  try {
+    await logActivity(api.db, {
+      actor_id: u?.id,
+      actor_role: role,
+      hanh_dong: 'sc_deadline', // v3.6 audit('deadline','phieu_sua',…)
+      doi_tuong: 'sc',
+      doi_tuong_id: scId,
+      sc_id: scId,
+      mo_ta: 'Đặt ngày hẹn trả xe ' + (d || 'chưa rõ'),
+    });
+  } catch (e: any) {
+    log.logError('scSetDeadline: logActivity failed', e, { sc_id: scId });
+  }
+  invalidateDashCache(); // W3.2-wire: ETA/kanban liên quan cột → làm mới
+  return { ok: true, han_tra_xe: d };
+}
+
+/**
+ * thoList — danh sách thợ để gán việc (v3.6 handlers.js:65–70).
+ * v3.6: role='tho' AND active=1 — v5 KHÔNG có role 'tho' trong CHECK users.role
+ * (nhóm xưởng gộp thành 'xuong') và không có cột active (soft-delete deleted_at)
+ * → port tương đương ngữ nghĩa: role='xuong' AND deleted_at=''.
+ * v3.6 gate ['tk','sua']; v5 chốt ['sc','xem'] (mọi role xem được SC đều cần
+ * dropdown gán việc) — phân quyền ở dispatch + READ_TOOLS (MCP đọc tự do).
+ * Trả [{id,name}] nguyên shape v3.6 (map lại đúng 2 cột).
+ */
+export async function thoList(api: Api): Promise<Array<{ id: string; name: string }>> {
+  const u = api.auth.current();
+  if (!u) return []; // v3.6 handlers.js:67 — chưa đăng nhập trả mảng rỗng (dispatch đã 401 trước)
+  const r = await api.db.query(
+    "SELECT id, name FROM users WHERE role='xuong' AND deleted_at='' ORDER BY name"
+  );
+  return r.rows.map((t: any) => ({ id: String(t.id), name: String(t.name) }));
 }

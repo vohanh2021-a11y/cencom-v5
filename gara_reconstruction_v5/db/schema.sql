@@ -54,6 +54,18 @@ CREATE TABLE sc_congviec (
 );
 CREATE INDEX idx_sc_cv_sc ON sc_congviec(sc_id);
 
+-- ============ W3.3A (XƯỞNG — dòng công việc + deadline) ============
+-- sc_congviec.tho_id: port v3.6 db.js dòng 97 (giao việc cho thợ — thoList phục vụ gán).
+-- sc.han_tra_xe: deadline trả xe — v3.6 tương ứng phieu_sua.ngay_du_kien
+--   (db.js migrate dòng 284 "TEXT DEFAULT ''"; ghi qua scSetDeadline sc.js:274–289).
+--   v5 đổi tên cột theo ngữ nghĩa frontend (han_tra_xe); giữ nguyên kiểu TEXT ''
+--   (soft-not-null, '' = chưa hẹn — xóa hẹn bằng cách set '').
+-- Index: v3.6 KHÔNG có index trên tho_id/ngay_du_kien (chỉ idx_psqc_sc sc_id +
+--   idx_sc_cv_tt tt, db.js:154,362) → v5 giữ nguyên, không thừa chỉ mục.
+-- ALTER IF NOT EXISTS chạy idempotent cho cả DB fresh (CREATE phía trên) lẫn dev/live.
+ALTER TABLE sc_congviec ADD COLUMN IF NOT EXISTS tho_id     TEXT DEFAULT '';
+ALTER TABLE sc          ADD COLUMN IF NOT EXISTS han_tra_xe TEXT DEFAULT '';
+
 -- ============ KHO ============
 CREATE TABLE vattu (
   id      VARCHAR(12) PRIMARY KEY,
@@ -102,18 +114,38 @@ CREATE INDEX ix_nhap_xuat_phieu ON nhap_xuat(phieu_id);
 CREATE INDEX ix_nhap_xuat_eff ON nhap_xuat((COALESCE(NULLIF(phieu_id, ''), id)));
 
 -- ============ DM ============
+-- W2b: trạng thái 'da_duyet' + cột duyệt port NGUYÊN v3.6 `de_nghi_mua`
+-- (db.js dòng 107–111: nguoi_duyet/ngay_duyet/ly_do_tu_choi ĐỀU TEXT DEFAULT '').
+-- v5 gộp `ly_do_tu_choi` + `ghi_chu` v3.6 THÀNH MỘT cột `ly_do` (lean schema):
+--   - tu_choi  -> ly_do = lý do từ chối       (v3.6: ly_do_tu_choi, kho.js:243)
+--   - dmFromSC/autoBu -> ly_do = ghi chú tạo  (v3.6: ghi_chu, qua dmCreate)
+-- Cột đặt DEFAULT '' theo đúng v3.6 (soft-not-null; không NOT NULL như deleted_at
+-- vì v3.6 cho phép NULL — giữ nguyên hành vi đọc).
 CREATE TABLE dm (
-  id         VARCHAR(12) PRIMARY KEY,
-  sc_id      VARCHAR(12) REFERENCES sc(id),
-  trang_thai VARCHAR(20) DEFAULT 'cho_duyet'
-             CHECK (trang_thai IN ('cho_duyet','da_nhap','tu_choi')),
-  tong       NUMERIC(14,2) DEFAULT 0,
-  nguoi_tao  VARCHAR(12) REFERENCES users(id),
-  ngay_tao   TEXT,
-  is_test    SMALLINT DEFAULT 0,
-  deleted_at TEXT DEFAULT ''
+  id          VARCHAR(12) PRIMARY KEY,
+  sc_id       VARCHAR(12) REFERENCES sc(id),
+  trang_thai  VARCHAR(20) DEFAULT 'cho_duyet'
+              CHECK (trang_thai IN ('cho_duyet','da_duyet','da_nhap','tu_choi')),
+  tong        NUMERIC(14,2) DEFAULT 0,
+  nguoi_tao   VARCHAR(12) REFERENCES users(id),
+  ngay_tao    TEXT,
+  nguoi_duyet TEXT DEFAULT '',
+  ngay_duyet  TEXT DEFAULT '',
+  ly_do       TEXT DEFAULT '',
+  is_test     SMALLINT DEFAULT 0,
+  deleted_at  TEXT DEFAULT ''
 );
 CREATE INDEX idx_dm_trang ON dm(trang_thai);
+-- W2b idempotent cho DB ĐÃ tồn tại trước khi có 'da_duyet' (dev/live):
+-- CREATE TABLE inline trên chỉ áp cho DB mới; DB cũ giữ CHECK 3 giá trị →
+-- DROP + ADD cùng tên PG tự sinh (dm_trang_thai_check). NOT NULL-free ADD
+-- COLUMN IF NOT EXISTS với DEFAULT '' scan-free trên PG >= 11.
+ALTER TABLE dm DROP CONSTRAINT IF EXISTS dm_trang_thai_check;
+ALTER TABLE dm ADD CONSTRAINT dm_trang_thai_check
+  CHECK (trang_thai IN ('cho_duyet','da_duyet','da_nhap','tu_choi'));
+ALTER TABLE dm ADD COLUMN IF NOT EXISTS nguoi_duyet TEXT DEFAULT '';
+ALTER TABLE dm ADD COLUMN IF NOT EXISTS ngay_duyet  TEXT DEFAULT '';
+ALTER TABLE dm ADD COLUMN IF NOT EXISTS ly_do       TEXT DEFAULT '';
 
 CREATE TABLE dm_chitiet (
   id       VARCHAR(12) PRIMARY KEY,
