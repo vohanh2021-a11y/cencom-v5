@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentActor, isSameOrigin, SESSION_COOKIE } from '../../../lib/auth';
+import { getCurrentActor, getMustChange, isSameOrigin, SESSION_COOKIE } from '../../../lib/auth';
 import { dispatch } from '../../../lib/rpc';
 import { buildApi } from '../../../lib/api';
 import { createLogger } from '../../../lib/logger';
@@ -8,6 +8,19 @@ import { inc } from '../../../lib/metrics';
 const logger = createLogger('rpc');
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * W4.1 — whitelist fn được phép khi tài khoản đang must_change=1.
+ * Port v3.6 index.js:155 (changePassword/currentUser/appInfo) + 'logout'
+ * theo hợp đồng task W4.1 (khóa người dùng mà không cho thoát thìsession
+ * treo còn tệ hơn). changePassword CHƯA reg vào lib/rpc.ts (đợt reg gộp
+ * sau — fn đã sẵn trong lib/auth.ts); tên giữ nguyên để whitelist đúng
+ * NGAY khi reg thêm HANDLERS. (KHÔNG export — next route type validator
+ * chỉ cho export handler/config; test đối chiếu hành vi qua HTTP, không import.)
+ */
+const MUST_CHANGE_WHITELIST: ReadonlySet<string> = new Set([
+  'changePassword', 'currentUser', 'appInfo', 'logout',
+]);
 
 export async function POST(req: NextRequest) {
   // CSRF defense-in-depth: chặn POST cross-site có header Origin không khớp host
@@ -25,6 +38,32 @@ export async function POST(req: NextRequest) {
   }
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const actor = getCurrentActor(token);
+  /* ---------- W4.1 (GĐ3.6.2) — BUỘC ĐỔI MẬT KHẨU: đọc cờ must_change SỐNG
+     từ DB theo actor.id mỗi request (đọc đúng data nguồn như v3.6 JOIN
+     sessions×users auth.js:92–100 — cờ đổi giữa phiên có hiệu lực tức thì;
+     KHÔNG nhét vào session HMAC vì token 7 ngày sẽ giữ cờ cũ).
+     Chặn TRƯỚC dispatch cho MỌI fn ngoài whitelist bằng envelope 403
+     (v3.6:156 giữ 200+needChangePw; task W4.1 chốt 403 rõ ràng hơn cho
+     client mới — flag needChangePw vẫn kèm để UI chuyển hướng đổi mk). ---------- */
+  if (actor && !MUST_CHANGE_WHITELIST.has(fn)) {
+    let mustChange = false;
+    try {
+      mustChange = await getMustChange(actor.id);
+    } catch (e: any) {
+      // Fail-closed: không đọc được trạng thái tài khoản → KHÔNG cho qua fn nhạy cảm
+      logger.error('must_change check failed (fail-closed)', { fn, userId: actor.id, error: e?.message });
+      inc('http_requests_total', { method: 'POST', path: '/api/rpc', status: '403' });
+      return NextResponse.json({ ok: false, error: 'Không xác minh được trạng thái tài khoản. Thử lại sau.' }, { status: 403 });
+    }
+    if (mustChange) {
+      inc('http_requests_total', { method: 'POST', path: '/api/rpc', status: '403' });
+      logger.warn('RPC blocked: must_change', { fn, userId: actor.id });
+      return NextResponse.json(
+        { ok: false, error: 'Bạn đang dùng mật khẩu mặc định. Hãy đổi mật khẩu trước khi tiếp tục.', needChangePw: true },
+        { status: 403 }
+      );
+    }
+  }
   const api = buildApi(actor);
   try {
     const result = await dispatch(api, fn, args);

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
-import { useRouter } from 'next/navigation';
-import { getCurrentUser, useApi } from '@/lib/hooks/useApi';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { getCurrentUser, useApi, type RpcResult } from '@/lib/hooks/useApi';
 import type { Actor } from '@/lib/types';
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -68,6 +68,75 @@ const PAGE_SIZE = 25;
  * compile 'fs' → 500 TOÀN APP (đã gặp ở W1.7, chạy thử e2e).
  */
 const KHO_RT_QUERY = 'vattu_changes,sc_vattu_changes,nhap_xuat_changes';
+
+/* ───────────────────────── W4.5a helpers (page-local) ─────────────────
+ * WHY page-local: wave W4.4 đang sửa components/** song song — chỉ được
+ * đụng file trang được giao. Mirror isFnUnavailable (sc/page.tsx:118).
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/** fn chưa vào registry (404/'Unknown fn') — khác lỗi nghiệp vụ envelope. */
+function isFnUnavailable(res: RpcResult): boolean {
+  if (res.ok) return false;
+  if (res.status === 404) return true;
+  const e = String(res.error || '').toLowerCase();
+  return e.includes('unknown fn') || e.includes('fn chưa khả dụng');
+}
+
+/**
+ * RPC KHÔNG qua useApi: api.call bật api.loading → Spinner phủ trang chặn
+ * pointer mỗi lần gõ. callRpc dùng riêng cho search (cookie tự gửi — cùng
+ * phiên), trả cùng shape RpcResult.
+ */
+async function callRpc(fn: string, args?: Record<string, unknown>): Promise<RpcResult> {
+  try {
+    const res = await fetch('/api/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fn, args }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data?.ok) return { ok: false, error: data?.error || 'Lỗi server', status: res.status };
+    return { ok: true, result: data.result };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Lỗi mạng', status: 0 };
+  }
+}
+
+/** Highlight khớp (React text — KHÔNG innerHTML), case-insensitive. */
+function Highlight({ text, term }: { text: string; term: string }) {
+  if (!term) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const needle = term.toLowerCase();
+  if (!lower.includes(needle)) return <>{text}</>;
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let k = 0;
+  for (;;) {
+    const idx = lower.indexOf(needle, i);
+    if (idx === -1) {
+      parts.push(<span key={k++}>{text.slice(i)}</span>);
+      break;
+    }
+    if (idx > i) parts.push(<span key={k++}>{text.slice(i, idx)}</span>);
+    parts.push(
+      <mark key={k++} className="rounded bg-yellow-200 px-0.5 text-slate-900">
+        {text.slice(idx, idx + term.length)}
+      </mark>
+    );
+    i = idx + term.length;
+  }
+  return <>{parts}</>;
+}
+
+/** Nhóm vattu trong globalSearch result (lib/core/search.ts:41). */
+interface VtHit {
+  id: string;
+  ten: string;
+  don_vi: string | null;
+  ton: unknown;
+  gia: unknown;
+}
+
 
 function Spinner() {
   return (
@@ -153,12 +222,15 @@ function Pager({
  * tab cũ của trang, chỉ đổi nhãn; modal + realtime refresh toàn trang).
  * ────────────────────────────────────────────────────────────────────── */
 
-function VattuListView({ vattuList }: { vattuList: VattuRow[] }) {
+function VattuListView({ vattuList, term = '' }: { vattuList: VattuRow[]; term?: string }) {
   // pg numeric về dạng string → ép số tường minh (cố định lỗi so sánh string>number)
   const lowStock = (v: VattuRow) => {
     const m = Number(v.ton_min ?? 0);
     return m > 0 && Number(v.ton ?? 0) <= m;
   };
+  // W4.5a: dòng TỪ globalSearch có thể không có ton_min (không thuộc sổ kho
+  // hiện tại — vd admin test-data) → badge xám '—', không khẳng định Đủ/Thiếu.
+  const tmKnown = (v: VattuRow) => v.ton_min != null && v.ton_min !== '';
 
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -184,16 +256,23 @@ function VattuListView({ vattuList }: { vattuList: VattuRow[] }) {
           ) : (
             vattuList.map((v) => {
               const flagLow = lowStock(v);
+              const known = tmKnown(v);
               return (
-                <tr key={v.id} className="border-b border-slate-100 last:border-0">
+                <tr key={v.id} data-testid="vattu-row" className="border-b border-slate-100 last:border-0">
                   <td className="px-3 py-2 font-mono">{v.id}</td>
-                  <td className="px-3 py-2">{v.ten}</td>
+                  <td className="px-3 py-2">
+                    <Highlight text={v.ten} term={term} />
+                  </td>
                   <td className="px-3 py-2">{v.don_vi || '—'}</td>
                   <td className="px-3 py-2 text-right">{qty(v.ton)}</td>
-                  <td className="px-3 py-2 text-right">{qty(v.ton_min)}</td>
+                  <td className="px-3 py-2 text-right">{known ? qty(v.ton_min) : '—'}</td>
                   <td className="px-3 py-2 text-right">{money(v.gia)}</td>
                   <td className="px-3 py-2 text-center">
-                    {flagLow ? (
+                    {!known ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                        —
+                      </span>
+                    ) : flagLow ? (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                         Thiếu tồn
                       </span>
@@ -1555,11 +1634,17 @@ function GuardNote() {
 
 export default function KhoPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const api = useApi();
 
   const [user, setUser] = useState<Actor | null | undefined>(undefined);
+  // ?q= từ URL (useSearchParams — đồng bộ pattern xe/page.tsx, dm/page.tsx).
+  const qUrl = (searchParams.get('q') ?? '').trim();
   // MẶC ĐỊNH = tab phiếu (2 tầng) theo spec W1.7; sub-list render đầu.
-  const [activeTab, setActiveTab] = useState<Tab>('phieu');
+  // W4.5a: đến từ /kho?q=<ten-vật-tư> (href GlobalSearch) → mở thẳng tab Vật tư.
+  const [activeTab, setActiveTab] = useState<Tab>(() =>
+    qUrl.length >= 2 ? 'vattu' : 'phieu'
+  );
   const [phieuSub, setPhieuSub] = useState<PhieuSub>('list');
   const [vattuList, setVattuList] = useState<VattuRow[]>([]);
   const [scList, setScList] = useState<ScRow[]>([]);
@@ -1569,6 +1654,104 @@ export default function KhoPage() {
   const [showVattuForm, setShowVattuForm] = useState(false);
   // Bộ đếm reload cho các list con (Phieu/TonKho/ThanhLy nhận refreshKey).
   const [refreshSeq, setRefreshSeq] = useState(0);
+
+  /* ───── W4.5a · ?q= → tab Vật tư + globalSearch.vattu[] (highlight) ─────
+   * Contract (search.ts:41): mảng thật = res.result.result.vattu (envelope
+   * 2 tầng).limit 30 = clamp core + zod (contracts.ts). Realtime SSE + các
+   * tab khác GIỮ NGUYÊN — search chỉ thêm lớp render cho tab 'vattu'. */
+  const [kw, setKw] = useState(qUrl);
+  const [vtHits, setVtHits] = useState<VtHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [fnDown, setFnDown] = useState(false);
+  const searchReq = useRef(0); // race: response cũ không đè response mới
+  const vattuListRef = useRef<VattuRow[]>([]);
+  vattuListRef.current = vattuList;
+
+  // URL đổi (palette /xe… → /kho?q=…) → sync ô tìm + bật tab vật tư.
+  useEffect(() => {
+    setKw(qUrl);
+    if (qUrl.length >= 2) setActiveTab('vattu');
+  }, [qUrl]);
+
+  const term = kw.trim();
+  const searchActive = term.length >= 2;
+
+  useEffect(() => {
+    if (!searchActive) {
+      setVtHits(null);
+      setSearching(false);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const my = ++searchReq.current;
+      setSearching(true);
+      const res = await callRpc('globalSearch', { q: term, limit: 30 });
+      if (my !== searchReq.current) return;
+      setSearching(false);
+      const needle = term.toLowerCase();
+      const localFallback = (): VtHit[] =>
+        vattuListRef.current
+          .filter((v) => String(v.ten ?? '').toLowerCase().includes(needle))
+          .map((v) => ({ id: v.id, ten: v.ten, don_vi: v.don_vi ?? null, ton: v.ton ?? 0, gia: v.gia ?? 0 }));
+      if (isFnUnavailable(res)) {
+        // fn chưa registry → degrade lọc client, KHÔNG crash (pattern W2b)
+        setFnDown(true);
+        setVtHits(localFallback());
+        return;
+      }
+      const env = res.ok ? (res.result as { ok?: boolean; result?: { vattu?: VtHit[] } } | undefined) : undefined;
+      if (res.ok && env?.ok === true) {
+        setFnDown(false);
+        setVtHits(
+          (env.result?.vattu ?? []).filter((v) => String(v.ten ?? '').toLowerCase().includes(needle)) // filter client-side (duyệt task)
+        );
+      } else {
+        setFnDown(false);
+        setVtHits(localFallback());
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [term, searchActive]);
+
+  // Merge id → dòng đủ ton_min (badge Đủ/Thiếu) khi ăn khớp sổ kho hiện tại;
+  // id lạ (search thấy, list không — vd test-data admin) → ton_min undefined
+  // → VattuListView render badge xám '—' (không khẳng định sai).
+  // Lọc theo q (từ URL ?q=, đồng bộ vào ô tìm): ten HOẶC ma (id) chứa chuỗi,
+  // case-insensitive — bắt cả mã VT-000012 mà globalSearch (chỉ ten) bỏ sót.
+  const vtRows: VattuRow[] = useMemo(() => {
+    const needle = term.toLowerCase();
+    const matchQ = (v: Pick<VattuRow, 'id' | 'ten'>) =>
+      !needle ||
+      String(v.ten ?? '').toLowerCase().includes(needle) ||
+      String(v.id ?? '').toLowerCase().includes(needle);
+    if (vtHits === null) return vattuList.filter(matchQ);
+    const byId = new Map(vattuList.map((v) => [v.id, v]));
+    return vtHits
+      .map((h) => {
+        const full = byId.get(h.id);
+        if (full) return full;
+        return { id: h.id, ten: h.ten, don_vi: h.don_vi, ton: h.ton as VattuRow['ton'], gia: h.gia as VattuRow['gia'] };
+      })
+      .filter(matchQ);
+  }, [vtHits, vattuList, term]);
+
+  const clearSearch = () => {
+    setKw('');
+    setVtHits(null);
+    setFnDown(false);
+    if (qUrl) router.replace('/kho');
+  };
+
+  const submitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = kw.trim();
+    if (q.length < 2) {
+      if (qUrl) router.replace('/kho');
+      return;
+    }
+    setActiveTab('vattu');
+    router.replace(`/kho?q=${encodeURIComponent(q)}`);
+  };
 
   const loadVattu = useCallback(async () => {
     const res = await api.call('vattuList');
@@ -1802,7 +1985,62 @@ export default function KhoPage() {
       </div>
 
       {/* Nội dung tầng-1 */}
-      {activeTab === 'vattu' && <VattuListView vattuList={vattuList} />}
+      {activeTab === 'vattu' && (
+        <div>
+          {/* W4.5a · ô tìm từ khóa tiêu thụ ?q= qua globalSearch.vattu[] */}
+          <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="kho-search-bar">
+            <form onSubmit={submitSearch} className="flex items-center gap-2">
+              <input
+                type="search"
+                role="searchbox"
+                aria-label="Tìm theo từ khóa"
+                data-testid="kho-q"
+                value={kw}
+                onChange={(e) => setKw(e.target.value)}
+                placeholder="Tìm theo từ khóa"
+                className="w-64 rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                data-testid="kho-search-go"
+                className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+              >
+                Tìm
+              </button>
+            </form>
+            {(kw || qUrl) && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                data-testid="kho-search-clear"
+                className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                clear
+              </button>
+            )}
+            {searching && (
+              <span data-testid="kho-search-busy" className="text-xs text-slate-400">
+                đang tìm…
+              </span>
+            )}
+            {searchActive && vtHits !== null && (
+              <span
+                data-testid="kho-result-chip"
+                className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
+              >
+                {vtRows.length} kết quả
+                {fnDown && <span className="ml-1 text-amber-700">· lọc client</span>}
+              </span>
+            )}
+          </div>
+          {qUrl && (
+            <p data-testid="kho-result-for" className="mb-2 text-xs text-slate-500">
+              Kết quả cho: {qUrl}
+            </p>
+          )}
+          <VattuListView vattuList={vtRows} term={searchActive ? term : qUrl} />
+        </div>
+      )}
 
       {activeTab === 'phieu' && (
         <div>

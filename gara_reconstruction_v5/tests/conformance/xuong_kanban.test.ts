@@ -1,5 +1,6 @@
 /**
- * W3.1-core — Conformance: lib/core/xuong.ts `dashboardAll` (kanban 5 cột + KPI).
+ * W3.1-core — Conformance: lib/core/xuong.ts `dashboardAll` (kanban 6 cột + KPI;
+ * W3.5: cột 'da_duyet' trở lại theo CHECK sc.trang_thai mở rộng).
  * Port v3.6 server/xuong.js dashboardAll (dòng 119–294) sang schema v5.
  *
  * Phong cách: gọi HÀM CORE TRỰC TIẾP qua buildApi + db (pattern kho_tonkho /
@@ -67,10 +68,12 @@ function findCard(res: Awaited<ReturnType<typeof dash>>, xeId: string) {
   return res.kanban.cols.flatMap((c) => c.cards).find((x) => x.xe_id === xeId);
 }
 
-/** Mirror SELECT đếm SC active is_test=0 ĐỘC LẬP với core (cùng bộ lọc). */
+/** Mirror SELECT đếm SC active is_test=0 ĐỘC LẬP với core (cùng bộ lọc).
+ *  W3.5: sc_cho_duyet = de_xuat + da_duyet — đúng công thức gộp v3.6 xuong.js:135. */
 async function scMirrorCounts() {
   const r = await db.query(
     "SELECT COUNT(*) FILTER (WHERE trang_thai='de_xuat')::int AS de_xuat, " +
+    "       COUNT(*) FILTER (WHERE trang_thai='da_duyet')::int AS da_duyet, " +
     "       COUNT(*) FILTER (WHERE trang_thai='dang_sua')::int AS dang_sua, " +
     "       COUNT(*) FILTER (WHERE trang_thai='da_hoan')::int  AS da_hoan " +
     "FROM sc WHERE deleted_at='' AND is_test=0"
@@ -112,13 +115,13 @@ afterAll(async () => {
   if (createdDm.length) await db.query("UPDATE dm SET deleted_at=$1 WHERE id=ANY($2::text[])", [today(), createdDm]);
 });
 
-describe('W3.1 — xuong.dashboardAll: kanban 5 cột v5 + KPI an toàn schema (core trực tiếp)', () => {
+describe('W3.1 — xuong.dashboardAll: kanban 6 cột v5 (W3.5 +da_duyet) + KPI an toàn schema (core trực tiếp)', () => {
   let xeA = ''; let scA1 = ''; let scA2 = '';
   let xeB = ''; let scB1 = ''; let scB2 = '';
   let xeC = ''; let scC = '';
 
   /* ── TC1: cổng quyền — 401 ẩn danh; 403 ketoan (chặn cứng v3.6); xuong OK ── */
-  test('TC1 — anon→401, ketoan→403 (port chặn cứng), xuong→ok + đúng khung 5 cột', async () => {
+  test('TC1 — anon→401, ketoan→403 (port chặn cứng), xuong→ok + đúng khung 6 cột', async () => {
     const anon = await dashboardAll(apiAnon);
     expect(anon).toEqual({ ok: false, error: '401' });
 
@@ -126,12 +129,12 @@ describe('W3.1 — xuong.dashboardAll: kanban 5 cột v5 + KPI an toàn schema (
     expect(kt).toEqual({ ok: false, error: '403' });
 
     const res = await dash(apiXuong);
-    // enum v5 THẬT (schema.sql CHECK): không còn da_duyet/cho_nghiem
+    // enum v5 THẬT (schema.sql CHECK) — W3.5 mở lại 'da_duyet'; cho_nghiem vẫn KHÔNG có ở v5
     expect(res.kanban.cols.map((c) => c.key)).toEqual(
-      ['de_xuat', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi']
+      ['de_xuat', 'da_duyet', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi']
     );
     expect(res.kanban.cols.map((c) => c.label)).toEqual(
-      ['Đề xuất', 'Đang sửa', 'Chờ nghiệm thu', 'Đã quyết toán', 'Từ chối']
+      ['Đề xuất', 'Đã duyệt', 'Đang sửa', 'Chờ nghiệm thu', 'Đã quyết toán', 'Từ chối']
     );
     expect(res.today).toBe(today());
     // KPI đủ bộ v5-safe; chat_unread/tk_* đã BỎ
@@ -212,7 +215,7 @@ describe('W3.1 — xuong.dashboardAll: kanban 5 cột v5 + KPI an toàn schema (
     const mirror = await scMirrorCounts();
     const xeCnt = await db.query("SELECT COUNT(*)::int n FROM xe WHERE deleted_at='' AND is_test=0");
     const res = await dash(apiXuong);
-    expect(res.kpi.sc_cho_duyet).toBe(Number(mirror.de_xuat));
+    expect(res.kpi.sc_cho_duyet).toBe(Number(mirror.de_xuat) + Number(mirror.da_duyet));
     expect(res.kpi.sc_dang_sua).toBe(Number(mirror.dang_sua));
     expect(res.kpi.sc_cho_nghiem).toBe(Number(mirror.da_hoan));
     expect(res.kpi.xe).toBe(Number(xeCnt.rows[0].n));
@@ -266,7 +269,7 @@ describe('W3.1 — xuong.dashboardAll: kanban 5 cột v5 + KPI an toàn schema (
     for (const v of res.kanban.vehicles) expect(v.sc_ids).not.toContain(mk.id);
     // KPI vẫn = mirror (mirror cũng excludes is_test=1) — chống cả hai phía cùng lệch
     const mirror = await scMirrorCounts();
-    expect(res.kpi.sc_cho_duyet).toBe(Number(mirror.de_xuat));
+    expect(res.kpi.sc_cho_duyet).toBe(Number(mirror.de_xuat) + Number(mirror.da_duyet));
     // de_xuat tăng thêm 1 dòng is_test=1 NHƯNG mirror cũng lọc → bất biến hold;
     // bằng chứng phụ: đếm KHÔNG lọc is_test phải LỚN hơn kpi
     const loose = await db.query("SELECT COUNT(*)::int n FROM sc WHERE deleted_at='' AND trang_thai='de_xuat'");
@@ -284,7 +287,7 @@ describe('W3.1 — xuong.dashboardAll: kanban 5 cột v5 + KPI an toàn schema (
     expect(findCard(res, xeG)).toBeUndefined();
     expect(res.kanban.vehicles.some((v) => v.xe_id === xeG)).toBe(false);
     const mirror = await scMirrorCounts();
-    expect(res.kpi.sc_cho_duyet).toBe(Number(mirror.de_xuat));
+    expect(res.kpi.sc_cho_duyet).toBe(Number(mirror.de_xuat) + Number(mirror.da_duyet));
   });
 
   /* ── TC8: vattu_thieu + dm_cho_duyet — import core kho.ts TRỰC TIẾP ── */

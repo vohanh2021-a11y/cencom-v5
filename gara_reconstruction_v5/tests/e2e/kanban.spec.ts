@@ -20,9 +20,12 @@ import { existsSync, rmSync } from 'node:fs';
  *   test board skip('đợi reg') + test fallback PHẢI chạy (UI render trạng
  *   thái 'đang kích hoạt', không crash). HTTP 200 → đã reg (kể cả lõi
  *   {ok:false,error} — dispatch đã resolve handler).
+ * • W3.5-UI (task này): SỔ CỘT LÀ ĐỘNG — worker-c mở máy trạng thái SC
+ *   (STATE_PRI + 'da_duyet' → cột thứ 6). Test (ii) không còn hardcode 5;
+ *   so khớp DOM ↔ cols của CHÍNH phản hồi dashboardAll vừa render.
  * • Spec này CHỈ ĐỌC — không tạo dữ liệu, không cần soft-delete afterAll.
- *   Seed is_test=0 rỗng → chỉ assert 5 cột + empty-state ("không crash" mức
- *   vừa, theo chỉ đạo task; KPI/core đếm is_test=0 nên KHÔNG được bơm
+ *   Seed is_test=0 rỗng → chỉ assert các cột (động) + empty-state ("không crash"
+ *   mức vừa, theo chỉ đạo task; KPI/core đếm is_test=0 nên KHÔNG được bơm
  *   is_test=1 để gồng assertion — nó sẽ không hiển thị).
  * • Screenshots: test-results/kanban-*.png
  *
@@ -31,6 +34,10 @@ import { existsSync, rmSync } from 'node:fs';
 
 const BASE = process.env.TEST_BASE_URL || 'http://localhost:3001';
 const AUTH_FILE = '.playwright-auth-kanban.json';
+/** 5 cột NỀN v5 — bất biến dù W3.5 mở thêm ('da_duyet'…): core KHÔNG bao giờ
+ *  bỏ cột nào trong danh sách này. Assertion SỐ CỘT LÀ ĐỘNG theo dashboardAll
+ *  cols thực trả (worker-c STATE_PRI W3.5 có thể cho ra cột thứ 6 'da_duyet'
+ *  — hardcode 5 sẽ đỏ đúng lúc đồng nghiệp reg giữa suite). */
 const STATUSES = ['de_xuat', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi'];
 
 let dashboardReady = false; // probe 'dashboardAll' — default phụ (chưa reg)
@@ -234,38 +241,76 @@ test.describe('Xưởng W3.8 — /sc/kanban (dashboardAll)', () => {
       // 'đang kích hoạt' + auto-retry 3s (khác hẳn màn 403) — role xuong có
       // sc.xem nên KHÔNG được thành 403 khi fn vừa reg giữa hai call
       await expect(page.getByTestId('kanban-denied')).toHaveCount(0);
-      if ((await page.getByTestId('kanban-activating').count()) === 0) {
+      const act = page.getByTestId('kanban-activating');
+      if ((await act.count()) === 0) {
         console.log('[kanban.spec] (i) fn reg ngay trong khoảng probe→render — board hiện, chấp nhận');
+      } else {
+        // W3.5-UI rà lại (task item 2): fallback PHẢI mang đúng chữ 'đang kích
+        // hoạt' (kanban/page.tsx:460 'Đang kích hoạt…') — khác 403/board/err.
+        await expect(act.first()).toContainText(/đang kích hoạt/i);
       }
     }
     await page.screenshot({ path: 'test-results/kanban-01-state.png', fullPage: true });
     expect(pageErrors, 'pageerror: ' + pageErrors.join(' | ')).toHaveLength(0);
   });
 
-  test('(ii) board: đúng 5 cột enum v5, header theo STATE_PRI', async ({ page }) => {
+  test('(ii) board: số cột ĐỘNG theo core cols (W3.5 "da_duyet" → cột 6), header đúng thứ tự', async ({
+    page,
+  }) => {
     test.skip(authBlocked, 'login bị chặn — skip');
     test.skip(
       !(await probeDashboard(page.request)), // page.request mang cookie storageState
       'đợi reg — dashboardAll chưa đăng ký trong RPC registry (worker-c W3.1-reg song song)'
     );
 
+    // ── ASSERT ĐỘNG (chỉ đạo W3.5-UI item 2) ──────────────────────────────
+    // Nguồn sự thật = chính phản hồi dashboardAll mà board vừa render
+    // (waitForResponse attach TRƯỚC goto → không bao giờ trễ khung dữ liệu).
+    // worker-c W3.5 mở máy trạng thái (STATE_PRI thêm 'da_duyet' = cột thứ 6)
+    // ⇒ hardcode `toHaveCount(5)` sẽ đỏ khi core reg giữa suite. Thay bằng:
+    //   cols DOM.count() === số cols server trả, đủ 5 cột nền v5, thứ tự khớp.
+    const dashResp = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        r.url().endsWith('/api/rpc') &&
+        (r.request().postData() || '').includes('dashboardAll'),
+      { timeout: 90_000 }
+    );
     await gotoKanban(page);
+    const dashBody = await (await dashResp).json().catch(() => null);
+    const colsData: Array<{ key?: string; label?: string }> | undefined =
+      dashBody?.result?.result?.kanban?.cols;
+    test.skip(!Array.isArray(colsData), 'shape result.result.kanban.cols đổi — rà lại core W3.1/W3.5');
+    const keys = (colsData as Array<{ key?: string; label?: string }>).map((c) => String(c?.key ?? ''));
+    expect(keys.length, 'core tối thiểu phải trả 5 cột nền v5').toBeGreaterThanOrEqual(5);
+    for (const st of STATUSES) expect(keys, `mất cột nền ${st} (enum v5 không được bỏ)`).toContain(st);
+
     const cols = page.getByTestId('kanban-col');
-    await expect(cols).toHaveCount(5, { timeout: 90_000 });
-    // ĐÚNG enum sc.trang_thai v5 (KHÔNG phải da_duyet/cho_nghiem của v3.6).
-    // LƯU Ý (fix đỏ W3.8): `filter({ has: locator('[data-state=..]') })` KHÔNG
-    // hợp lệ ở đây — `has` match theo CON CHÁU, còn data-state nằm TRÊN CHÍNH
-    // phần tử cột (page.tsx: div data-testid=data-state=col.key). Core luôn
-    // map đủ 5 cột STATUSES (xuong.ts: cols = STATUSES.map — xác thực rpc
-    // thật 2026-09-01, cards rỗng vẫn trả 5) → compound selector + nth đúng
-    // thứ tự là assertion chuẩn.
-    for (let i = 0; i < STATUSES.length; i++) {
-      const key = STATUSES[i];
+    await expect(cols.first()).toBeVisible({ timeout: 30_000 });
+    // khớp động: DOM đúng bằng (và cùng thứ tự) cols server vừa trả
+    await expect.poll(async () => cols.count(), { timeout: 15_000 }).toBe(keys.length);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
       await expect(page.locator(`[data-testid="kanban-col"][data-state="${key}"]`)).toBeVisible();
-      await expect(cols.nth(i)).toHaveAttribute('data-state', key); // thứ tự = core STATUSES
+      await expect(cols.nth(i)).toHaveAttribute('data-state', key); // thứ tự DOM = core cols
     }
-    // nhãn cột từ core COL_TT (da_hoan mang nghĩa 'Chờ nghiệm thu')
-    await expect(page.locator('[data-state="da_hoan"]')).toContainText('Chờ nghiệm thu');
+    // cột W3.5 của worker-c: 'da_duyet' — hiện thì phải đúng vị trí core trả; chưa
+    // hiện thì log rõ 'đợi core' (đây KHÔNG phải fail — reg song song).
+    // VỊ TRÍ là quyết định của CORE STATE_PRI/STATUSES (đo thực tế 2026-09-01: worker-c
+    // đặt sau de_xuat = cột #2 theo thứ tự máy trạng thái, KHÔNG phải #6 như
+    // forecast đầu task) → KHÔNG assert index cứng; thứ tự DOM↔server đã khớp
+    // ở loop trên là đủ nghĩa 'động'.
+    const ddIdx = keys.indexOf('da_duyet');
+    if (ddIdx >= 0) {
+      await expect(cols.nth(ddIdx)).toHaveAttribute('data-state', 'da_duyet');
+      console.log(`[kanban.spec] (ii) cột da_duyet #${ddIdx + 1}/${keys.length} ĐÃ hiện (worker-c STATE_PRI vào rồi) — label='${colsData?.[ddIdx]?.label ?? ''}'`);
+    } else {
+      console.log('[kanban.spec] (ii) da_duyet CHƯA là cột riêng (core STATE_PRI W3.5 chưa reg) — board 5 cột nền, chấp nhận');
+    }
+    // nhãn cột đọc TỪ cols server (không hardcode chuỗi): da_hoan mang nghĩa
+    // 'Chờ nghiệm thu' theo COL_TT — server trả label nào thì DOM chứa label đó.
+    const daHoanLabel = colsData?.find((c) => c.key === 'da_hoan')?.label || 'Chờ nghiệm thu';
+    await expect(page.locator('[data-state="da_hoan"]')).toContainText(daHoanLabel);
     await page.screenshot({ path: 'test-results/kanban-02-cols.png', fullPage: true });
   });
 

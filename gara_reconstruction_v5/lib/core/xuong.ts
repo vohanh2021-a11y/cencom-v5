@@ -7,13 +7,14 @@
  * ============================================================
  * Kanban:
  *  - v3.6 5 cột ['de_xuat','da_duyet','dang_sua','cho_nghiem','tu_choi']
- *    → v5 THEO TT enum THẬT của sc.trang_thai (schema.sql dòng 31):
- *      ['de_xuat','dang_sua','da_hoan','da_quyet','tu_choi'].
- *      (`da_duyet`/`cho_nghiem` KHÔNG tồn tại ở v5; `da_hoan` = xong sửa,
- *      đang chờ nghiệm thu hồ sơ → đảm nhận vai cột 'cho_nghiem' cũ.)
+ *    → v5 THEO TT enum THẬT của sc.trang_thai (schema.sql, sau W3.5):
+ *      ['de_xuat','da_duyet','dang_sua','da_hoan','da_quyet','tu_choi'] — 6 cột.
+ *      ('da_duyet' KHÔI PHỤC từ W3.5 (duệt theo ngưỡng); 'cho_nghiem' KHÔNG tồn
+ *      tại ở v5; 'da_hoan' = xong sửa, đang chờ nghiệm thu hồ sơ → đảm nhận vai
+ *      cột 'cho_nghiem' cũ; 'da_quyet' cột riêng v5.)
  *  - STATE_PRI v3.6 {dang_sua:5, cho_nghiem:4, da_duyet:3, de_xuat:2, tu_choi:1}
- *    → port ánh xạ: {dang_sua:5, da_hoan:4, da_quyet:3, de_xuat:2, tu_choi:1}
- *      (giữ bất biến: tiến độ cao MORE priority; `tu_choi` chót).
+ *    → port ánh xạ: {da_quyet:6, dang_sua:5, da_hoan:4, da_duyet:3, de_xuat:2,
+ *      tu_choi:1} (giữ bất biến: tiến độ cao MORE priority; `tu_choi` chót).
  *  - Nhóm card: v3.6 gom theo chuỗi `bks` trên phieu_sua; v5 sc KHÔNG có bks
  *    → gom theo sc.xe_id (FK NOT NULL), JOIN xe lấy `bien_so` (1 xe = 1 card,
  *    gộp nhiều SC — hành vi v3.6.2 giữ nguyên).
@@ -29,8 +30,8 @@
  *    `yeu_cau_tham_kham` (KPI tk_*): v5 không có → BỎ + TODO(W3.1-reg).
  *
  * KPI "v5 an toàn" (chỉ dùng cột/bảng CÓ THẬT):
- *  - sc_cho_duyet  = COUNT de_xuat                 (v3.6 gộp de_xuat+da_duyet;
- *                   v5 không còn da_duyet → chính bằng nhánh sc_de_xuat cũ).
+ *  - sc_cho_duyet  = COUNT(de_xuat ∪ da_duyet) — ĐÚNG công thức gộp v3.6
+ *                   (xuong.js:135). W3.5 khôi phục nhánh 'da_duyet' vào enum.
  *  - sc_dang_sua   = COUNT dang_sua.
  *  - sc_cho_nghiem = COUNT da_hoan   ( Semantic v5: xong sửa chờ nghiệm thu).
  *  - sc_quyet_hom_nay / tien_quyet_hom_nay: v3.6 đọc lich_sua.ngay=today;
@@ -80,12 +81,16 @@ import { tonKho, dmList } from './kho';
 
 const log = createScopedLogger('xuong');
 
-/** enum sc.trang_thai THẬT (db/schema.sql CHECK) — đúng 5 cột kanban v5. */
-const STATUSES = ['de_xuat', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi'] as const;
+/** enum sc.trang_thai THẬT (db/schema.sql CHECK) — 6 cột kanban v5.
+ * W3.5: chèn 'da_duyet' sau 'de_xuat' theo ĐÚNG thứ tự luồng v3.6 sc.js:3 /
+ * xuong.js:290 (['de_xuat','da_duyet',...]) — UI render động theo mảng này. */
+const STATUSES = ['de_xuat', 'da_duyet', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi'] as const;
 
-/** Nhãn cột (ánh xạ COL_TT v3.6 dòng 154 — đổi 2 nhãn theo enum v5). */
+/** Nhãn cột (ánh xạ COL_TT v3.6 dòng 154 — 'da_duyet' trở lại đúng nguyên văn
+ *  v3.6 'Đã duyệt' từ W3.5; đổi 2 nhãn theo enum v5 còn lại). */
 const COL_TT: Record<string, string> = {
   de_xuat: 'Đề xuất',
+  da_duyet: 'Đã duyệt',
   dang_sua: 'Đang sửa',
   da_hoan: 'Chờ nghiệm thu',
   da_quyet: 'Đã quyết toán',
@@ -93,12 +98,16 @@ const COL_TT: Record<string, string> = {
 };
 
 /**
- * STATE_PRI port v3.6 dòng 157: ánh xạ cho_nghiem→da_hoan, da_duyet→da_quyet.
+ * STATE_PRI port v3.6 dòng 157 {dang_sua:5, cho_nghiem:4, da_duyet:3, de_xuat:2,
+ * tu_choi:1}: ánh xạ cho_nghiem→da_hoan; W3.5 khôi phục da_duyet:3 ĐÚNG vị trí
+ * v3.6 (giữa de_xuat và dang_sua); da_quyet (trạng thái cuối riêng của v5, v3.6
+ * kanban không hiển thị) nâng lên 6 để giữ nguyên dây chuyền tương đối cũ
+ * de_xuat<da_duyet<dang_sua<da_hoan như trước khi W3.5 tác động 5 trạng thái.
  * Bất biến giữ nguyên: trạng thái tiến độ cao hơn thắng khi 1 xe nhiều SC;
- * tu_choi bét bảng.
+ * tu_choi chót bảng.
  */
 const STATE_PRI: Record<string, number> = {
-  dang_sua: 5, da_hoan: 4, da_quyet: 3, de_xuat: 2, tu_choi: 1,
+  da_quyet: 6, dang_sua: 5, da_hoan: 4, da_duyet: 3, de_xuat: 2, tu_choi: 1,
 };
 
 /** Thứ tự dò cột "cao nhất" của 1 xe (v3.6 PRIORITY_ORDER, giảm dần theo PRI). */
@@ -228,9 +237,11 @@ export async function dashboardAll(
   const today = todayStr();
 
   try {
-    // ── KPI đếm SC (1 aggregate query — thay 5 COUNT rời rạc v3.6 dòng 135–138)
+    // ── KPI đếm SC (1 aggregate query — thay 5 COUNT rời rạc v3.6 dòng 135–138).
+    //    W3.5: sc_cho_duyet về ĐÚNG công thức v3.6 xuong.js:135
+    //    IN ('de_xuat','da_duyet') — 'da_duyet' đã tồn tại lại trong enum.
     const scAggRes = await api.db.query(
-      "SELECT COUNT(*) FILTER (WHERE trang_thai='de_xuat')::int  AS sc_cho_duyet, " +
+      "SELECT COUNT(*) FILTER (WHERE trang_thai IN ('de_xuat','da_duyet'))::int  AS sc_cho_duyet, " +
       "       COUNT(*) FILTER (WHERE trang_thai='dang_sua')::int AS sc_dang_sua, " +
       "       COUNT(*) FILTER (WHERE trang_thai='da_hoan')::int  AS sc_cho_nghiem " +
       "FROM sc WHERE deleted_at='' AND is_test=0"

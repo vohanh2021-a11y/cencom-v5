@@ -24,11 +24,14 @@ CREATE TABLE xe (
 CREATE INDEX idx_xe_bien ON xe(bien_so);
 
 -- ============ SC ============
+-- W3.5: mở CHECK theo TRẬT TỰ LUỒNG v3.6 sc.js:3 (de_xuat → da_duyet → dang_sua → ...)
+-- thêm 'da_duyet' (duyệt theo ngưỡng duyet_sc_nguong). inline CHECK cho DB fresh;
+-- bản idempotent (DROP+ADD) đặt cuối file — cả hai PHẢI giữ đúng cùng danh sách.
 CREATE TABLE sc (
   id         VARCHAR(12) PRIMARY KEY,
   xe_id      VARCHAR(12) NOT NULL REFERENCES xe(id),
   trang_thai VARCHAR(20) NOT NULL DEFAULT 'de_xuat'
-             CHECK (trang_thai IN ('de_xuat','dang_sua','da_hoan','da_quyet','tu_choi')),
+             CHECK (trang_thai IN ('de_xuat','da_duyet','dang_sua','da_hoan','da_quyet','tu_choi')),
   ngay_tao   TEXT NOT NULL,
   nguoi_tao  VARCHAR(12) REFERENCES users(id),
   tong_cong  NUMERIC(14,2) DEFAULT 0,
@@ -65,6 +68,39 @@ CREATE INDEX idx_sc_cv_sc ON sc_congviec(sc_id);
 -- ALTER IF NOT EXISTS chạy idempotent cho cả DB fresh (CREATE phía trên) lẫn dev/live.
 ALTER TABLE sc_congviec ADD COLUMN IF NOT EXISTS tho_id     TEXT DEFAULT '';
 ALTER TABLE sc          ADD COLUMN IF NOT EXISTS han_tra_xe TEXT DEFAULT '';
+
+-- ============ W3.5 (XƯỞNG — DUYỆT THEO NGƯỠNG + TỔNG DUYỆT SNAPSHOT) ============
+-- Port v3.6: states sc.js:3 (de_xuat→da_duyet chia ngưỡng phân quyền scApprove→
+-- dang_sua scStart), cột nguoi_duyet/ngay_duyet (db.js phieu_sua — sc.js:199 ghi),
+-- bảng sc_phien_ban (db.js:211–216 snapshot JSON: sc_id, nguoi_chot, ngay_chot,
+-- snapshot, deleted_at + idx_spb_sc).
+-- LỆCH v3.6 CÓ CHỦ ĐÍCH (chốt theo thiết kế dual-track W3.5):
+--  1) KHÔNG thêm trạng thái 'da_tong_duyet': v5 đánh dấu CHỐT bằng SỰ TỒN TẠI
+--     dòng sc_phien_ban (deleted_at='') — UNIQUE partial chống trùng thay cho
+--     upsert-by-exist của v3.6 (sc.js:228–233). Snapshot sau chốt BẤT BIẾN:
+--     mọi cổng sửa/thêm dòng kiểm tra chốt ở đầu (core/sc.ts).
+--  2) KHÔNG thêm cột ly_do_tu_choi: v5 đã chốt từ chối qua scTuChoi (ghi lý do
+--     vào activity_log) — scApprove chỉ nhánh 'duyệt' (v3.6 action='ok').
+-- ALTER...CONSTRAINT chạy idempotent cho DB dev/live đã tồn tại (pattern W2b dm).
+ALTER TABLE sc DROP CONSTRAINT IF EXISTS sc_trang_thai_check;
+ALTER TABLE sc ADD CONSTRAINT sc_trang_thai_check
+  CHECK (trang_thai IN ('de_xuat','da_duyet','dang_sua','da_hoan','da_quyet','tu_choi'));
+ALTER TABLE sc ADD COLUMN IF NOT EXISTS nguoi_duyet TEXT DEFAULT '';
+ALTER TABLE sc ADD COLUMN IF NOT EXISTS ngay_duyet  TEXT DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS sc_phien_ban (
+  id          BIGSERIAL PRIMARY KEY,
+  sc_id       VARCHAR(12) NOT NULL REFERENCES sc(id),
+  nguoi_chot  TEXT NOT NULL DEFAULT '',      -- v3.6 db.js:213
+  ngay_chot   TEXT NOT NULL DEFAULT '',
+  snapshot    TEXT NOT NULL DEFAULT '',      -- JSON {sc,cong,vat,baoGia,chot} (v3.6 sc.js:226)
+  deleted_at  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_spb_sc ON sc_phien_ban(sc_id);
+-- "mỗi phiếu 1 phiên bản sống" — v3.6 chỉ guard bằng SELECT-exist trước INSERT
+-- (sc.js:228, không có UNIQUE); PG cần chỉ mục unique để chống race 2 tx cùng chot.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_spb_sc_live ON sc_phien_ban (sc_id)
+  WHERE deleted_at = '';
 
 -- ============ KHO ============
 CREATE TABLE vattu (

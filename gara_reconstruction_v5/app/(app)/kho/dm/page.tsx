@@ -1,8 +1,8 @@
 ﻿'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type React from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getCurrentUser, useApi, type RpcResult } from '@/lib/hooks/useApi';
 import type { Actor } from '@/lib/types';
 
@@ -38,6 +38,7 @@ interface DmRow {
   ngay_tao?: string | null;
   so_dong: number;
   sc_id?: string | null;
+  ly_do?: string | null;
 }
 
 interface DmItem {
@@ -81,6 +82,16 @@ const money = (n?: number | string | null) =>
   n == null || n === '' ? '—' : Number(n).toLocaleString('vi-VN') + '₫';
 const fmtDate = (ts?: string | null) => (!ts ? '—' : String(ts).slice(0, 10));
 
+/** Lọc client theo ?q=: ma (fallback id) hoặc ly_do chứa q — không phân biệt hoa thường. */
+function dmMatchesQuery(r: DmRow, q: string): boolean {
+  const needle = q.toLowerCase();
+  if (!needle) return true;
+  return (
+    String(r.ma ?? r.id ?? '').toLowerCase().includes(needle) ||
+    String(r.ly_do ?? '').toLowerCase().includes(needle)
+  );
+}
+
 function Spinner() {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20">
@@ -123,8 +134,69 @@ function isFnUnavailable(res: RpcResult): boolean {
   return e.includes('unknown fn') || e.includes('fn chưa khả dụng');
 }
 
+/* ───────────────────────── W4.5a helpers (page-local) ─────────────────
+ * WHY page-local: wave W4.4 sửa components/** song song — chỉ được đụng
+ * trang được giao (rule task). Mirror GlobalSearch.tsx:32.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/**
+ * RPC KHÔNG qua useApi (api.call → api.loading → Spinner phủ mỗi lần gõ,
+ * chặn pointer). Search dùng fetch thẳng — cookie tự gửi, cùng shape trả về.
+ */
+async function callRpc(fn: string, args?: Record<string, unknown>): Promise<RpcResult> {
+  try {
+    const res = await fetch('/api/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fn, args }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data?.ok) return { ok: false, error: data?.error || 'Lỗi server', status: res.status };
+    return { ok: true, result: data.result };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Lỗi mạng', status: 0 };
+  }
+}
+
+/** Highlight khớp (React text — KHÔNG innerHTML). */
+function Highlight({ text, term }: { text: string; term: string }) {
+  if (!term) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const needle = term.toLowerCase();
+  if (!lower.includes(needle)) return <>{text}</>;
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let k = 0;
+  for (;;) {
+    const idx = lower.indexOf(needle, i);
+    if (idx === -1) {
+      parts.push(<span key={k++}>{text.slice(i)}</span>);
+      break;
+    }
+    if (idx > i) parts.push(<span key={k++}>{text.slice(i, idx)}</span>);
+    parts.push(
+      <mark key={k++} className="rounded bg-yellow-200 px-0.5 text-slate-900">
+        {text.slice(idx, idx + term.length)}
+      </mark>
+    );
+    i = idx + term.length;
+  }
+  return <>{parts}</>;
+}
+
+/** Nhóm dm trong globalSearch result — search CHỈ trả id (không so_dong) →
+ *  đối chiếu với dmList để giữ đúng shape bảng + số dòng thật khi render. */
+interface DmHit {
+  id: string;
+  sc_id: string | null;
+  trang_thai: string;
+  tong: unknown;
+  ngay_tao: string | null;
+}
+
 export default function KhoDmPage() {
   const router = useRouter();
+  const params = useSearchParams();
   const api = useApi();
   const [user, setUser] = useState<Actor | null | undefined>(undefined);
 
@@ -160,6 +232,88 @@ export default function KhoDmPage() {
   const [lyDo, setLyDo] = useState('');
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+
+  /* ───────── W4.5a · ?q= → globalSearch.dm[] (tab Danh sách) ─────────
+   * Palette link theo contract: dm → /kho/dm?q=<DM-id>. Search trả ĐÚNG id
+   * (không so_dong) → giao diện: gọi dmList(limit 200 — trần core) một lần
+   * và lọc theo tập id ⇒ giữ đúng shape bảng; expand/duyệt/xóa hoạt động
+   * như danh sách thường, không N+1 theo kết quả. Envelope 2 tầng: mảng thật =
+   * res.result.result.dm. q≥2 (Q_MIN core + zod contracts.ts:282). */
+  const qUrl = (params.get('q') ?? '').trim();
+  const [kw, setKw] = useState(qUrl);
+  const [searchRows, setSearchRows] = useState<DmRow[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchNote, setSearchNote] = useState<string | null>(null);
+  const searchReq = useRef(0);
+  const rowsRef = useRef<DmRow[] | null>(null);
+  rowsRef.current = rows;
+
+  useEffect(() => {
+    setKw(qUrl);
+  }, [qUrl]);
+
+  const term = kw.trim();
+  const searchActive = term.length >= 2;
+
+  useEffect(() => {
+    if (!searchActive) {
+      setSearchRows(null);
+      setSearching(false);
+      setSearchNote(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const my = ++searchReq.current;
+      setSearching(true);
+      setSearchNote(null);
+      const res = await callRpc('globalSearch', { q: term, limit: 30 });
+      if (my !== searchReq.current) return; // race: response cũ bị bỏ
+      if (isFnUnavailable(res)) {
+        // degrade: lọc client trên danh sách đã nạp (tab thường, không gọi RM)
+        setSearching(false);
+        setSearchNote('globalSearch chưa sẵn sàng — lọc client trên trang hiện tại');
+        const lo = (rowsRef.current ?? []).filter((r) => dmMatchesQuery(r, term));
+        setSearchRows(lo);
+        return;
+      }
+      const env = res.ok
+        ? (res.result as { ok?: boolean; result?: { dm?: DmHit[] }; error?: string } | undefined)
+        : undefined;
+      if (!res.ok || env?.ok !== true) {
+        setSearching(false);
+        setSearchNote(String((res.ok ? env?.error : (res as { error?: string }).error) ?? 'Không tìm được.'));
+        setSearchRows([]);
+        return;
+      }
+      const ids = new Set((env.result?.dm ?? []).map((d) => d.id));
+      try {
+        const lr = await callRpc('dmList', { page: 1, limit: 200 });
+        if (my !== searchReq.current) return;
+        setSearching(false);
+        if (!lr.ok) {
+          setSearchRows([]);
+          setSearchNote('dmList lỗi — không đối chiếu được chi tiết');
+          return;
+        }
+        const lenv = lr.result as { ok?: boolean; result?: DmRow[] } | undefined;
+        const all = Array.isArray(lenv?.result) ? (lenv!.result as DmRow[]) : [];
+        setSearchRows(all.filter((r) => ids.has(r.id) || ids.has(r.ma)));
+      } catch {
+        if (my !== searchReq.current) return;
+        setSearching(false);
+        setSearchRows([]);
+        setSearchNote('Lỗi đối chiếu danh sách — thử lại');
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [term, searchActive]);
+
+  const clearSearch = () => {
+    setKw('');
+    setSearchRows(null);
+    setSearchNote(null);
+    if (qUrl) router.replace('/kho/dm'); // effect [term] reset + effect list reload dmList
+  };
 
   /* ─────────────────────────── helpers RPC ─────────────────────────── */
   // Bóc envelope lớp 2: /api/rpc luôn {ok:true,result:<core>}; core dmList/
@@ -265,10 +419,11 @@ export default function KhoDmPage() {
 
   useEffect(() => {
     if (tab !== 'danh_sach') return;
+    if (searchActive) return; // W4.5a: mode tìm ?q= — bảng lấy từ globalSearch, bỏ dmList
     setPage(1);
     loadList(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, filter]);
+  }, [tab, filter, searchActive]);
 
   const role = user?.role;
   const canView = !!role && role !== 'ketoan'; // dmList ['kho','xem'] — ketoan không mua sắm
@@ -283,6 +438,27 @@ export default function KhoDmPage() {
   const currentRows = tab === 'danh_sach' ? rows : scRows;
   const rowsLoading = tab === 'danh_sach' ? listLoading : scLoading;
   const listErr = tab === 'danh_sach' ? listError : scError;
+
+  // W4.5a · mode ?q= (tab danh sách): bảng = kết quả globalSearch∩dmList.
+  const inDmSearch = tab === 'danh_sach' && searchActive;
+  const baseRows: DmRow[] | null = inDmSearch ? searchRows : currentRows;
+  // Lọc client theo ?q= (ma hoặc ly_do, không phân biệt hoa thường) trên danh
+  // sách thường — mode globalSearch đã lọc server-side nên không lọc lại
+  // (tránh bỏ sót hit khớp theo trường khác, vd link palette ?q=<DM-id>).
+  const simpleQ = tab === 'danh_sach' && !inDmSearch ? qUrl : '';
+  const dispRows: DmRow[] | null =
+    simpleQ && baseRows !== null ? baseRows.filter((r) => dmMatchesQuery(r, simpleQ)) : baseRows;
+  const dispLoading = inDmSearch ? searching : rowsLoading;
+
+  const submitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = kw.trim();
+    if (q.length < 2) {
+      if (qUrl) router.replace('/kho/dm');
+      return;
+    }
+    router.replace(`/kho/dm?q=${encodeURIComponent(q)}`);
+  };
 
   const toggleExpand = (id: string) => {
     if (expandedId === id) {
@@ -436,6 +612,64 @@ export default function KhoDmPage() {
         ))}
       </div>
 
+      {/* W4.5a · ô tìm ?q= → globalSearch.dm[] (tab Danh sách) */}
+      {tab === 'danh_sach' && (
+        <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="dm-search-bar">
+          <form onSubmit={submitSearch} className="flex items-center gap-2">
+            <input
+              type="search"
+              role="searchbox"
+              aria-label="Tìm theo từ khóa"
+              data-testid="dm-q"
+              value={kw}
+              onChange={(e) => setKw(e.target.value)}
+              placeholder="Tìm theo từ khóa"
+              className="w-64 rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              data-testid="dm-search-go"
+              className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+            >
+              Tìm
+            </button>
+          </form>
+          {(kw || qUrl) && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              data-testid="dm-search-clear"
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+            >
+              clear
+            </button>
+          )}
+          {searching && (
+            <span data-testid="dm-search-busy" className="text-xs text-slate-400">
+              đang tìm…
+            </span>
+          )}
+          {searchActive && searchRows !== null && (
+            <span
+              data-testid="dm-search-info"
+              className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
+            >
+              Tìm “{term}” — {searchRows.length} kết quả
+            </span>
+          )}
+          {searchActive && searchNote && (
+            <span data-testid="dm-search-note" className="text-xs text-amber-700">
+              {searchNote}
+            </span>
+          )}
+          {qUrl && (
+            <span data-testid="dm-q-result" className="text-xs text-slate-500">
+              Kết quả cho: {qUrl}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Thanh lọc theo trạng thái (chỉ danh sách) */}
       {tab === 'danh_sach' && (
         <div data-testid="dm-chips" className="mb-3 flex flex-wrap gap-1 text-sm">
@@ -451,7 +685,10 @@ export default function KhoDmPage() {
               key={val || 'all'}
               type="button"
               data-testid={`dm-chip-${val || 'tat'}`}
-              onClick={() => setFilter(val)}
+              onClick={() => {
+                if (searchActive) clearSearch(); // W4.5a: bấm chip = rời mode tìm ?q=
+                setFilter(val);
+              }}
               className={
                 'rounded-full border px-3 py-1 text-xs font-medium ' +
                 (filter === val
@@ -511,18 +748,23 @@ export default function KhoDmPage() {
               </tr>
             </thead>
             <tbody>
-              {!canView ? null : rowsLoading || currentRows === null ? (
+              {!canView ? null : dispLoading || dispRows === null ? (
                 <SkeletonRow cols={7} />
-              ) : currentRows.length === 0 ? (
+              ) : dispRows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-3 text-center text-slate-400">
-                    Chưa có đề nghị mua nào.
+                    {inDmSearch
+                      ? `Không có đề nghị mua khớp “${term}”.`
+                      : simpleQ
+                        ? `Không có đề nghị mua khớp “${simpleQ}”.`
+                        : 'Chưa có đề nghị mua nào.'}
                   </td>
                 </tr>
               ) : (
-                currentRows.map((row) => (
+                dispRows.map((row) => (
                   <DmRowBlock
-                    key={row.id + (tab === 'danh_sach' ? filter : 'sc')}
+                    key={row.id + (tab === 'danh_sach' ? (inDmSearch ? 'q' + term : filter) : 'sc')}
+                    term={inDmSearch ? term : ''}
                     row={row}
                     expanded={expandedId === row.id}
                     onToggle={() => toggleExpand(row.id)}
@@ -544,8 +786,8 @@ export default function KhoDmPage() {
           </table>
         </div>
 
-        {/* Phân trang (chỉ tab danh sách) */}
-        {tab === 'danh_sach' && total > 0 && (
+        {/* Phân trang (chỉ tab danh sách, chế độ thường — W4.5a: search không phân trang) */}
+        {!inDmSearch && tab === 'danh_sach' && total > 0 && (
           <div className="mt-3 flex items-center justify-end gap-2 text-sm text-slate-600">
             <button
               type="button"
@@ -630,6 +872,7 @@ export default function KhoDmPage() {
 /* ─────────────────────────── Row + detail expand ─────────────────────────── */
 function DmRowBlock({
   row,
+  term = '',
   expanded,
   onToggle,
   detailLoading,
@@ -643,6 +886,7 @@ function DmRowBlock({
   onShowUnavailable,
 }: {
   row: DmRow;
+  term?: string;
   expanded: boolean;
   onToggle: () => void;
   detailLoading: boolean;
@@ -670,7 +914,9 @@ function DmRowBlock({
   return (
     <>
       <tr data-testid="dm-row" className="border-b border-slate-100 last:border-0">
-        <td className="px-3 py-2 font-mono">{row.ma || row.id}</td>
+        <td className="px-3 py-2 font-mono">
+          {term ? <Highlight text={String(row.ma || row.id)} term={term} /> : row.ma || row.id}
+        </td>
         <td className="px-3 py-2">
           <TtChip tt={row.trang_thai} />
         </td>

@@ -1,14 +1,17 @@
 import type { Api } from '../types';
-import { row, run, nextId } from '../db';
+import type { PoolClient } from 'pg';
+import { row, run, nextId, withTransaction } from '../db';
 import { logActivity } from './activity';
 import { checkHoSo } from './ho_so';
 import { createScopedLogger } from '../observability';
-import { invalidateDashCache } from './xuong'; // W3.2-wire: ghi xong luồng SC → lạnh dashboard xưởng
+import { invalidateDashCache, vnd } from './xuong'; // W3.2-wire: ghi xong luồng SC → lạnh dashboard xưởng; vnd: port v3.6 sc.js:30
 
 const log = createScopedLogger('sc');
 
-// Enum trạng thái phiếu sửa chữa (db/schema.sql CHECK)
-const TT = ['de_xuat', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi'];
+// Enum trạng thái phiếu sửa chữa (db/schema.sql CHECK).
+// W3.5: thêm 'da_duyet' theo thứ tự luồng v3.6 sc.js:3 (đề xuất → duyệt theo ngưỡng →
+// đang sửa → …). 'tu_choi' nhánh phải (scTuChoi/scApprove từ chối giữ nguyên ở v5).
+const TT = ['de_xuat', 'da_duyet', 'dang_sua', 'da_hoan', 'da_quyet', 'tu_choi'];
 // Loại xử lý hợp lệ (db/schema.sql sc_congviec CHECK)
 const LOAI_XU_LY = ['thay_moi', 'sua_chua', 'bao_duong', 'khac'];
 // Chỉ admin/ketoan được quyết toán (v3.6 perm.canQuyetToan() — v5 đã siết khỏi giamdoc/xuong)
@@ -175,6 +178,7 @@ export async function scAddCongViec(
   optionalNumber(p?.so_luong, 'so_luong');
   optionalNumber(p?.don_gia, 'don_gia');
   await getSc(api, scId);
+  await assertKhongChot(scId); // W3.5: phiếu đã chốt → hồ sơ bất biến, không thêm dòng
   const id = await nextId('CV');
   const r = await row<{ c: number }>('SELECT COUNT(*)::int AS c FROM sc_congviec WHERE sc_id=$1', [scId]);
   const stt = (r?.c ?? 0) + 1;
@@ -212,6 +216,7 @@ export async function scAddVatTu(
   const vattuId = requireStr(p?.vattu_id, 'vattu_id');
   const soLuong = requirePositiveNumber(p?.so_luong, 'so_luong');
   await getSc(api, scId);
+  await assertKhongChot(scId); // W3.5: phiếu đã chốt → hồ sơ bất biến, không thêm dòng
   // W3.3A ĐÓNG WIRESH_PRICE: nhận giá đăng ký ngay khi thêm dòng.
   //  - UI app/(app)/sc/page.tsx (W2.5, dòng 390–395) gửi key `don_gia` (alias của
   //    `gd_dk` — tên cột v5). Core chấp nhận CẢ HAI: gd_dk = p.gd_dk ?? p.don_gia ?? 0.
@@ -244,31 +249,66 @@ export async function scAddVatTu(
   return { id };
 }
 
-export async function scBatDauSua(api: Api, p: { sc_id: string }): Promise<{ ok: true }> {
+/**
+ * scBatDauSua — bắt đầu sửa chữa. W3.5 DUAL-TRACK:
+ *  - 'de_xuat'  : GIỮ đường vào trực tiếp của v5 (hành vi W0.2→W3.3A, ~572 test
+ *    + UI cũ phụ thuộc — business.test/rpc.test/qc206/sc_workline). v3.6 scStart
+ *    (sc.js:261) CHỈ mở từ da_duyet/da_tong_duyet; v5 giữ de_xuat làm đường
+ *    tương thích CHO TỚI KHI approve UI phủ hết màn hình → TODO(W3.6): siết
+ *    (bỏ nhánh de_xuat) khi worker-e xong nút duyệt — coordinator quyết.
+ *  - 'da_duyet' : path v3.6 NGUYÊN — vào scStart là LƯU PHIÊN BẢN kế hoạch đã
+ *    duyệt nếu chưa có (sc.js:264–266 `if (!exist) snapshotSC(id, meId())` =
+ *    auto-chot). Sau auto-chot, snapshot bất biến (mọi cổng dòng kiểm chốt).
+ *  - BỎ CÓ CHỦ ĐÍCH: v3.6 khApplyToSC(id) (GĐ3.7 kế-hoach-tiến-độ → dòng việc) —
+ *    v5 ke_hoach_sc CHỈ có mo_ta (bước 1 hồ sơ 8 bước, không phải kế hoạch tiến
+ *    độ) → không có gì áp dụng. Ghi chú truy vết theo chốt W3.1-port-map.
+ * TX + FOR UPDATE: approve/tong-duyet/start trên CÙNG phiếu tuần tự hóa —
+ * đối thủ đến sau thấy trang_thai mới (không nhảy 2 trạng thái trong 1 lượt).
+ */
+export async function scBatDauSua(api: Api, p: { sc_id: string }): Promise<{ ok: true; chot?: boolean }> {
   const u = api.auth.current();
   const role = u?.role;
   if (!(await api.perm.can(api.db, role!, 'sc', 'sua'))) throw new Error('403');
   const scId = requireStr(p?.sc_id, 'sc_id');
-  const sc = await getSc(api, scId);
-  if (sc.trang_thai !== 'de_xuat') {
-    throw new Error('Không thể bắt đầu sửa khi phiếu đang ' + sc.trang_thai);
-  }
-  await run('UPDATE sc SET trang_thai=$1 WHERE id=$2 AND deleted_at=$3', ['dang_sua', scId, '']);
-  try {
-    await logActivity(api.db, {
+  return await withTransaction(async (client) => {
+    const sc = (await client.query(
+      "SELECT id, trang_thai, is_test FROM sc WHERE id=$1 AND deleted_at='' FOR UPDATE",
+      [scId]
+    )).rows[0];
+    if (!sc) throw new Error('Không tìm thấy phiếu sửa chữa');
+    if (sc.trang_thai !== 'de_xuat' && sc.trang_thai !== 'da_duyet') {
+      throw new Error('Không thể bắt đầu sửa khi phiếu đang ' + sc.trang_thai);
+    }
+    let chotNow = false;
+    if (sc.trang_thai === 'da_duyet') {
+      // v3.6 scStart:264–266 — "khi chạy luôn lưu phiên bản kế hoạch đã duyệt".
+      const exist = await client.query(
+        "SELECT id FROM sc_phien_ban WHERE sc_id=$1 AND deleted_at=''",
+        [scId]
+      );
+      if (!exist.rows.length) {
+        await snapshotSC(client, scId, u?.id ?? '', '');
+        chotNow = true;
+      }
+    }
+    await client.query(
+      "UPDATE sc SET trang_thai='dang_sua' WHERE id=$1 AND deleted_at=''",
+      [scId]
+    );
+    // audit TRONG tx (pattern kho.auditTx — pool thứ 2 trong tx = deadlock risk).
+    await auditInTx(client, {
       actor_id: u?.id,
       actor_role: role,
       hanh_dong: 'sc_bat_dau_sua',
       doi_tuong: 'sc',
       doi_tuong_id: scId,
       sc_id: scId,
-      mo_ta: 'Bắt đầu sửa',
+      mo_ta: chotNow ? 'Bắt đầu sửa (tự chốt phiên bản kế hoạch đã duyệt)' : 'Bắt đầu sửa', // v3.6:269 'Bắt đầu sửa chữa'
+      is_test: Number(sc.is_test ?? 0),
     });
-  } catch (e: any) {
-    log.logError('scBatDauSua: logActivity failed', e, { sc_id: scId });
-  }
-  invalidateDashCache(); // W3.2-wire: de_xuat→dang_sua (dổi cột kanban) → lạnh dash
-  return { ok: true };
+    invalidateDashCache(); // end-of-tx (pattern dmDecide): de_xuat/da_duyet→dang_sua đổi cột kanban
+    return chotNow ? { ok: true as const, chot: true } : { ok: true as const };
+  });
 }
 
 export async function scHoanThanh(api: Api, p: { sc_id: string }): Promise<{ ok: true }> {
@@ -394,28 +434,60 @@ export async function scQuyetToan(api: Api, p: { sc_id: string }): Promise<{ ok:
 /** Trạng thái dòng công việc hợp lệ theo CHECK v5 (sc_congviec.tt). 'todo' chỉ là alias nạp đầu vào. */
 const TT_DONG_CV = ['cho', 'dang', 'hoan'];
 
-/** Đọc dòng CV + phiếu cha; gate 'chỉ sửa khi de_xuat'. Trả {err} dạng envelope nội bộ. */
+/** Đọc dòng CV + phiếu cha; gate 'chỉ sửa khi de_xuat'. Trả {err} dạng envelope nội bộ.
+ * W3.5: cổng KIỂM CHỐT đặt ĐẦU (trước gate de_xuat) — phiếu đã scTongDuyet/auto-chot
+ * là HỒ SƠ BẤT BIẾN, mọi sửa dòng bị chặn bất kể trạng thái (v3.6 chặn qua
+ * ACTIVE_STATUS∌da_tong_duyet; v5 chốt bằng dòng sc_phien_ban — schema comment). */
 async function loadWorkLine(scItemId: string): Promise<{ cv: any; sc: any }> {
   const cv = await row('SELECT * FROM sc_congviec WHERE id=$1 AND deleted_at=$2', [scItemId, '']);
   if (!cv) throw new Error('Không thấy hạng mục công việc.'); // v3.6 sc.js:296
-  const sc = await row('SELECT * FROM sc WHERE id=$1 AND deleted_at=$2', [cv.sc_id, '']);
+  const sc = await row(
+    "SELECT s.*, EXISTS(SELECT 1 FROM sc_phien_ban pb WHERE pb.sc_id = s.id AND pb.deleted_at = '') AS da_chot " +
+    'FROM sc s WHERE s.id=$1 AND s.deleted_at=$2',
+    [cv.sc_id, '']
+  );
   if (!sc) throw new Error('Không tìm thấy phiếu sửa chữa');
+  if (sc.da_chot) {
+    throw new Error('Phiếu đã chốt (tổng duyệt) — hồ sơ bất biến, không sửa dòng.'); // v5 chot (W3.5)
+  }
   if (sc.trang_thai !== 'de_xuat') {
     throw new Error('Chỉ sửa khi đề xuất.'); // gate v5 (v3.6: ACTIVE_STATUS — xem comment block)
   }
   return { cv, sc };
 }
 
-/** Đọc dòng VT + phiếu cha; gate như loadWorkLine. */
+/** Đọc dòng VT + phiếu cha; gate như loadWorkLine (kèm kiểm CHỐT đầu cổng W3.5). */
 async function loadVatTuLine(vtItemId: string): Promise<{ vt: any; sc: any }> {
   const vt = await row('SELECT * FROM sc_vattu WHERE id=$1 AND deleted_at=$2', [vtItemId, '']);
   if (!vt) throw new Error('Không thấy vật tư.'); // v3.6 sc.js:359
-  const sc = await row('SELECT * FROM sc WHERE id=$1 AND deleted_at=$2', [vt.sc_id, '']);
+  const sc = await row(
+    "SELECT s.*, EXISTS(SELECT 1 FROM sc_phien_ban pb WHERE pb.sc_id = s.id AND pb.deleted_at = '') AS da_chot " +
+    'FROM sc s WHERE s.id=$1 AND s.deleted_at=$2',
+    [vt.sc_id, '']
+  );
   if (!sc) throw new Error('Không tìm thấy phiếu sửa chữa');
+  if (sc.da_chot) {
+    throw new Error('Phiếu đã chốt (tổng duyệt) — hồ sơ bất biến, không sửa dòng.');
+  }
   if (sc.trang_thai !== 'de_xuat') {
     throw new Error('Chỉ sửa khi đề xuất.');
   }
   return { vt, sc };
+}
+
+/**
+ * assertKhongChot — cổng CHỐT cho đường THÊM dòng (scAddCongViec/scAddVatTu).
+ * v3.6 scWorkAdd/scVtAdd gate ACTIVE_STATUS (sc.js:321/344) ⟹ sau tổng-duyệt
+ * (da_tong_duyet ∌ ACTIVE) KHÔNG thêm dòng được nữa. v5 không có trạng thái đó —
+ * chốt = dòng sc_phien_ban → chặn thẳng ở đây (bất kỳ recalc nào sau chốt cũng
+ * không xé được snapshot bất biến). Phiếu chưa chốt: hành vi y hệt hiện tại (0 break).
+ */
+async function assertKhongChot(scId: string): Promise<void> {
+  const r = await row(
+    "SELECT 1 AS x FROM sc_phien_ban WHERE sc_id=$1 AND deleted_at=''",
+    [scId]
+  );
+  if (r) throw new Error('Phiếu đã chốt (tổng duyệt) — hồ sơ bất biến, không thêm dòng.');
 }
 
 /**
@@ -654,6 +726,7 @@ export async function scVtDel(api: Api, p: { id: string }): Promise<{ ok: true }
 const DEADLINE_ROLES = ['xuong', 'giamdoc', 'admin'];
 const TT_LABEL_V5: Record<string, string> = {
   de_xuat: 'đề xuất',
+  da_duyet: 'đã duyệt', // W3.5: da_duyet không bị chặn hẹn (≡ v3.6 sc.js:281), nhưng message cần nhãn
   dang_sua: 'đang sửa',
   da_hoan: 'đã hoàn thành',
   da_quyet: 'đã quyết toán',
@@ -711,4 +784,245 @@ export async function thoList(api: Api): Promise<Array<{ id: string; name: strin
     "SELECT id, name FROM users WHERE role='xuong' AND deleted_at='' ORDER BY name"
   );
   return r.rows.map((t: any) => ({ id: String(t.id), name: String(t.name) }));
+}
+
+/* ═══════════════ W3.5 (XƯỞNG) — DUYỆT THEO NGƯỠNG + TỔNG DUYỆT SNAPSHOT ═══════════════
+ * Port NGUYÊN v3.6: sc.js scApprove (190–205), scTongDuyet (237–256), snapshotSC
+ * (208–235), scStart auto-chot (259–271 — đã wire vào scBatDauSua ở khối trên);
+ * perm.js scNguong/canApproveSC (109–117) + seed.js:259 default 5.000.000đ.
+ *
+ * CẤU TRÚC QUYỀN (đồng khuôn W2b dmDecide — lib/core/kho.ts:1340):
+ *  - Dispatch META ['sc','duy'] (cửa ma trận: giamdoc/xuong/admin — lib/perm.ts,
+ *    mapping v3.6 {quanly,giamdoc}→{xuong(=ql gộp),giamdoc}); NGƯỠNG giá trị
+ *    phán quyết TRONG core dưới đây — role ngoài tập duyệt nhận business error
+ *    chứa 'Giám đốc' (fail-closed, không im lặng).
+ *  - LỆCH v3.6 CÓ CHỦ ĐÍCH (thiết kế dual-track đã chốt):
+ *    1) KHÔNG có trạng thái 'da_tong_duyet': TỔNG DUYỆT = ghi 1 dòng sc_phien_ban
+ *       (UNIQUE partial uq_spb_sc_live chống trùng/race); phiếu DỪNG ở 'da_duyet'
+ *       với cờ chốt = sự tồn tại dòng snapshot. Cổng sửa dòng + thêm dòng kiểm
+ *       chốt ĐẦU hàm (loadWorkLine/loadVatTuLine/assertKhongChot) ⟹ sau chốt,
+ *       SNAPSHOT BẤT BIẾN thật sự (không đường nào recalc kịp chạm dữ liệu trong
+ *       json đã đóng).
+ *    2) scTongDuyet KHÔNG có nhánh 'từ chối tổng duyệt' (v3.6:253 lùi về da_duyet
+ *       + ly_do_tu_choi) — contract W3.5 chốt {id}, không action; từ chối phiếu
+ *       đã có đường riêng scTuChoi (de_xuat). Ghi nhận để coordinator cân nhắc
+ *       mở 'từ chối tổng duyệt' ở W3.6 nếu UI cần.
+ *    3) snapshot bao_gia_ncc: SELECT * nguyên hàng — schema v5 có sẵn cột
+ *       ocr_xac_nhan/anh_bao_gia cho bước 3 hồ sơ (khác v3.6 OCR: chỉ dữ liệu
+ *       NCC chuẩn, BỎ có chủ đúng mọi đường OCR theo AGENTS.md).
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+/** Key config ngưỡng duyệt SC (v3.6 perm.js:109 configGet('duyet_sc_nguong')). */
+const SC_NGUONG_KEY = 'duyet_sc_nguong';
+/** Default theo v3.6 seed.js:259 — 5.000.000 đ (v5 seed chưa có key → core tự đảm, pattern kho.MUA_NGUONG_DEFAULT). */
+const SC_NGUONG_DEFAULT = '5000000';
+
+/**
+ * Đọc ngưỡng duyệt SC: INSERT-if-missing (ON CONFLICT DO NOTHING — idempotent,
+ * tx-safe, không giẫm giá trị admin đã chỉnh) rồi SELECT. Hành vi như v3.6
+ * scNguong(): Number(configGet(key, 0)) || 0 — giá trị rác/rỗng = 0 (xuong
+ * không duyệt được phiếu nào khi ngưỡng 0, đúng v3.6). Nhận pool lẫn client.
+ */
+async function scNguong(
+  // eslint-disable-next-line no-unused-vars -- base rule nhầm các tham số trong function TYPE (chữ ký tài liệu); kho.ts:1312 cùng khuôn
+  q: { query: (sql: string, params?: any[]) => Promise<{ rows: any[] }> }
+): Promise<number> {
+  await q.query(
+    'INSERT INTO config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+    [SC_NGUONG_KEY, SC_NGUONG_DEFAULT]
+  );
+  const r = await q.query('SELECT value FROM config WHERE key = $1', [SC_NGUONG_KEY]);
+  const n = Number(r.rows[0]?.value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * canApproveSC — port NGUYÊN thuật toán v3.6 perm.js:112–117, chiếu role v5:
+ *   admin|giamdoc: VÔ HẠN (v3.6 hard-code, độc lập ma trận).
+ *   xuong        : tong ≤ ngưỡng (vai v3.6 'quanly' duyệt trong ngưỡng — v5 gộp
+ *                 trách nhiệm quản lý vào xuong, xem lib/perm.ts W3.5 comment).
+ *   còn lại      : false (v3.6: tho/khoa/ketoan/laixe không bao giờ duyệt —
+ *                  MATRIX sc.duy v3.6 cũng không mở; ketoan/kho v5 chết ở
+ *                  dispatch 403, đây là防线 thứ 2 fail-closed).
+ * KHÔNG hardcode tập vai ở dispatch — đây là TRỌNG TÀI CUỐI (chuẩn 2 AGENTS).
+ */
+async function canApproveSC(role: string, tong: any, nguong: number): Promise<boolean> {
+  const r = String(role || '').toLowerCase();
+  if (r === 'admin' || r === 'giamdoc') return true;
+  if (r === 'xuong') return Number(tong ?? 0) <= nguong;
+  return false;
+}
+
+/** Nhãn trạng thái cho message duyệt — port TT_LABEL v3.6 sc.js:13–18 (nguyên văn tiếng Việt). */
+const APPROVE_LABEL: Record<string, string> = {
+  de_xuat: 'Đề xuất',
+  da_duyet: 'Đã duyệt',
+  dang_sua: 'Đang sửa',
+  da_hoan: 'Hoàn thành',
+  da_quyet: 'Đã quyết toán',
+  tu_choi: 'Từ chối',
+};
+
+/** Ngày hệ thống YYYY-MM-DD UTC — đồng nhất todayStr() kho.ts/xuong.ts (= db.today() v3.6). */
+function todaySc(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+/** Ghi activity_log bằng CLIENT tx đang mở (kho.auditTx — pool thứ hai trong tx = 2 lỗi: audit ma + deadlock). */
+async function auditInTx(
+  client: PoolClient,
+  p: Parameters<typeof logActivity>[1]
+): Promise<void> {
+  await client.query(
+    'INSERT INTO activity_log (actor_id,actor_role,hanh_dong,doi_tuong,doi_tuong_id,sc_id,mo_ta,is_test) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+    [p.actor_id ?? null, p.actor_role ?? null, p.hanh_dong, p.doi_tuong ?? null, p.doi_tuong_id ?? null, p.sc_id ?? null, p.mo_ta ?? null, p.is_test ?? 0]
+  );
+}
+
+/**
+ * snapshotSC — port v3.6 sc.js:208–235. Bộ hồ sơ chốt = { sc, cong, vat, baoGia,
+ * chot:{nguoi,ngay,lyDo} } (ĐÚNG khóa JSON v3.6 — v3.6 tính `pn` rồi KHÔNG đưa
+ * vào snap (sc.js:220–226), v5 bỏ luôn query chết đó).
+ *  - v5 gộp 4 SELECT+stringify của v3.6 thành MỘT json_build_object::text phía
+ *    PG (1 phát roundtrip — chuẩn 3b), thứ tự dòng giữ nguyên: cong stt,id /
+ *    vat id (v5 sc_vattu KHÔNG có cột stt) / baoGia id (v3.6: ORDER BY stt,id,
+ *    id, id).
+ *  - Ghi: INSERT ... ON CONFLICT (sc_id) WHERE deleted_at='' DO UPDATE — tương
+ *    đương nhánh tồn-tại của v3.6 (sc.js:229–230); thực tế KHÔNG BAO GIỜ chạm
+ *    DO UPDATE vì mọi caller gates trước (scTongDuyet chặn khi đã chốt,
+ *    scBatDauSua auto chỉ khi !exist) → BẤT BIẾN trên lối đi thật.
+ * Trả JSON text đã serialize (gọi trong tx — nhận PoolClient của withTransaction).
+ */
+async function snapshotSC(
+  client: PoolClient,
+  scId: string,
+  nguoiChot: string,
+  lyDo: string
+): Promise<string> {
+  const snapRes = await client.query(
+    "SELECT json_build_object(" +
+    " 'sc', (SELECT to_jsonb(s) FROM sc s WHERE s.id=$1 AND s.deleted_at='')," +
+    " 'cong', COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.stt, t.id) FROM sc_congviec t WHERE t.sc_id=$1 AND t.deleted_at=''), '[]'::jsonb)," +
+    " 'vat', COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM sc_vattu t WHERE t.sc_id=$1 AND t.deleted_at=''), '[]'::jsonb)," +
+    " 'baoGia', COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM bao_gia_ncc t WHERE t.sc_id=$1 AND t.deleted_at=''), '[]'::jsonb)," +
+    " 'chot', json_build_object('nguoi', $2::text, 'ngay', $3::text, 'lyDo', $4::text)" +
+    ")::text AS json",
+    [scId, nguoiChot, todaySc(), lyDo]
+  );
+  const json = String(snapRes.rows[0]?.json ?? '{}');
+  await client.query(
+    'INSERT INTO sc_phien_ban (sc_id, nguoi_chot, ngay_chot, snapshot) VALUES ($1,$2,$3,$4) ' +
+    "ON CONFLICT (sc_id) WHERE deleted_at='' DO UPDATE " +
+    'SET snapshot = EXCLUDED.snapshot, nguoi_chot = EXCLUDED.nguoi_chot, ngay_chot = EXCLUDED.ngay_chot',
+    [scId, nguoiChot, todaySc(), json]
+  );
+  return json;
+}
+
+/**
+ * scApprove — duyệt phiếu theo NGƯỠNG TIỀN (port v3.6 sc.js:190–205, envelope
+ * pattern kho.dmDecide — 200 + {ok:false,error}, không throw).
+ *  - Gate: CHỈ 'de_xuat' (v3.6:194 message nguyên văn 'Đang <label> — không duyệt được.').
+ *  - Ngưỡng: tong > duyet_sc_nguong ∧ role ∉ {admin,giamdoc} → lỗi v3.6:196
+ *    'Chưa đủ quyền duyệt (~<vnd>) — cần Giám đốc.' (xuong ≤ ngưỡng OK).
+ *  - Duyệt: trang_thai='da_duyet' + nguoi_duyet/ngay_duyet (v3.6:199; cột thêm
+ *    W3.5 — schema). v3.6 còn xóa ly_do_tu_choi: không port — phiếu duyệt luôn
+ *    từ de_xuat, chưa từng có lý do; v5 không có cột đó (comment schema #2).
+ *  - tx + FOR UPDATE: chống 2 lệnh duyệt / duyệt-vs-start song song ghi đè.
+ */
+export async function scApprove(
+  api: Api,
+  p: { id?: any } = {}
+): Promise<{ ok: boolean; id?: string; trang_thai?: string; error?: string }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (typeof p?.id !== 'string' || !p.id.trim() || p.id.length > 12) {
+    return { ok: false, error: 'id phải là chuỗi 1..12 ký tự' };
+  }
+  const id = p.id.trim();
+  return await withTransaction(async (client) => {
+    const sc = (await client.query(
+      "SELECT id, trang_thai, tong, is_test FROM sc WHERE id=$1 AND deleted_at='' FOR UPDATE",
+      [id]
+    )).rows[0];
+    if (!sc) return { ok: false, error: 'Không tìm thấy phiếu.' }; // v3.6:193
+    if (sc.trang_thai !== 'de_xuat') {
+      return { ok: false, error: 'Đang ' + (APPROVE_LABEL[sc.trang_thai] || sc.trang_thai) + ' — không duyệt được.' }; // v3.6:194
+    }
+    const nguong = await scNguong(client);
+    if (!(await canApproveSC(String(role), sc.tong, nguong))) {
+      return { ok: false, error: 'Chưa đủ quyền duyệt (~' + vnd(sc.tong) + ') — cần Giám đốc.' }; // v3.6:196
+    }
+    await client.query(
+      "UPDATE sc SET trang_thai='da_duyet', nguoi_duyet=$2, ngay_duyet=$3 WHERE id=$1 AND deleted_at=''",
+      [id, u?.id ?? '', todaySc()]
+    );
+    await auditInTx(client, {
+      actor_id: u?.id, actor_role: role, hanh_dong: 'sc_duyet', // v3.6 audit('approval','phieu_sua',…)
+      doi_tuong: 'sc', doi_tuong_id: id, sc_id: id,
+      mo_ta: 'Duyệt phiếu', // v3.6:203 nguyên văn
+      is_test: Number(sc.is_test ?? 0),
+    });
+    invalidateDashCache(); // end-of-tx (pattern dmDecide): de_xuat→da_duyet đổi cột kanban + KPI sc_cho_duyet
+    return { ok: true, id, trang_thai: 'da_duyet' }; // v3.6:204 {ok, trang_thai}
+  });
+}
+
+/**
+ * scTongDuyet — TỔNG DUYỆT kế hoạch sửa chữa = chốt snapshot bất biến (port
+ * v3.6 sc.js:237–256 'ok' branch + snapshotSC; envelope như scApprove).
+ *  - Gate 1: trạng thái phải 'da_duyet' (v3.6:241–243 message nguyên văn
+ *    'Phiếu đang <label> — chỉ tổng duyệt khi Đã duyệt.').
+ *  - Gate 2: NGƯỠNG cùng hàm duyệt (v3.6:244–246 'Chưa đủ quyền tổng duyệt
+ *    (~vnd) — cần Giám đốc.').
+ *  - Gate 3 (v5 thay trạng thái da_tong_duyet): ĐÃ chốt → chặn 'không tổng
+ *    duyệt lại' — mỗi phiếu ĐÚNG MỘT snapshot sống; INSERT trúng UNIQUE race
+ *    cũng fail tx (chống trùng 2 lớp).
+ *  - Hiệu lực: ghi sc_phien_ban {sc,cong,vat,baoGia,chot}, chot = actor+ngày
+ *    (sc.js:226); phiếu DỪNG 'da_duyet' + cờ chốt (= tồn tại dòng snapshot).
+ *    Từ đây mọi cổng dòng (scWorkSet/Del/scVtUpd/Del/scAddCongViec/scAddVatTu)
+ *    CHẶN — hồ sơ bất biến, đúng ngữ nghĩa chốt của v3.6.
+ *  - tx + FOR UPDATE toàn bộ (đọc phiếu → chốt → audit là MỘT khối nguyên tử).
+ */
+export async function scTongDuyet(
+  api: Api,
+  p: { id?: any } = {}
+): Promise<{ ok: boolean; id?: string; chot?: boolean; snapshot?: boolean; trang_thai?: string; error?: string }> {
+  const u = api.auth.current();
+  const role = u?.role;
+  if (typeof p?.id !== 'string' || !p.id.trim() || p.id.length > 12) {
+    return { ok: false, error: 'id phải là chuỗi 1..12 ký tự' };
+  }
+  const id = p.id.trim();
+  return await withTransaction(async (client) => {
+    const sc = (await client.query(
+      "SELECT id, trang_thai, tong, is_test FROM sc WHERE id=$1 AND deleted_at='' FOR UPDATE",
+      [id]
+    )).rows[0];
+    if (!sc) return { ok: false, error: 'Không tìm thấy phiếu.' }; // v3.6:240
+    if (sc.trang_thai !== 'da_duyet') {
+      return { ok: false, error: 'Phiếu đang ' + (APPROVE_LABEL[sc.trang_thai] || sc.trang_thai) + ' — chỉ tổng duyệt khi Đã duyệt.' }; // v3.6:242
+    }
+    const nguong = await scNguong(client);
+    if (!(await canApproveSC(String(role), sc.tong, nguong))) {
+      return { ok: false, error: 'Chưa đủ quyền tổng duyệt (~' + vnd(sc.tong) + ') — cần Giám đốc.' }; // v3.6:245
+    }
+    const exist = await client.query(
+      "SELECT id FROM sc_phien_ban WHERE sc_id=$1 AND deleted_at=''",
+      [id]
+    );
+    if (exist.rows.length) {
+      // v3.6 phân biệt bằng trạng thái da_tong_duyet; v5 chốt = dòng snapshot tồn tại (lệch #1 block comment)
+      return { ok: false, error: 'Phiếu đã chốt (tổng duyệt) — snapshot bất biến, không tổng duyệt lại.' };
+    }
+    await snapshotSC(client, id, u?.id ?? '', ''); // v3.6:248 snapshotSC(id, meId())
+    await auditInTx(client, {
+      actor_id: u?.id, actor_role: role, hanh_dong: 'sc_tong_duyet', // v3.6 audit('tong-duyet',…)
+      doi_tuong: 'sc', doi_tuong_id: id, sc_id: id,
+      mo_ta: 'Tổng duyệt kế hoạch sửa chữa (đã lưu phiên bản)', // v3.6:250 nguyên văn
+      is_test: Number(sc.is_test ?? 0),
+    });
+    invalidateDashCache(); // end-of-tx (data trên board không đổi trạng thái NHƯNG cổng chốt + audit feed)
+    return { ok: true, id, chot: true, snapshot: true, trang_thai: 'da_duyet' }; // v3.6:251 {ok,trang_thai:da_tong_duyet,snapshot:true}
+  });
 }

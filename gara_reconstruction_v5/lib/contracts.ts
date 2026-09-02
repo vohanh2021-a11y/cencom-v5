@@ -80,6 +80,18 @@ export const RPC_SCHEMAS: Record<string, z.ZodRawShape> = {
   // thoList: không tham số — READ danh sách thợ (role xuong).
   thoList: {},
 
+  // W3.5 — DUYỆT SC THEO NGƯỠNG + TỔNG DUYỆT CHỐT SNAPSHOT (code sc_phien_ban).
+  // Ràng buộc nghiệp vụ (trang_thai phải de_xuat/da_duyet, ngưỡng tiền
+  // duyet_sc_nguong, chưa-chot) KHÔNG biểu diễn được bằng zod → core
+  // (lib/core/sc.ts scApprove/scTongDuyet, envelope business error). id theo
+  // chuẩn VARCHAR(12) 'PREFIX-000001' — cùng trần scWorkSet/dmDecide 2 tầng.
+  scApprove: {
+    id: z.string().min(1).max(12),
+  },
+  scTongDuyet: {
+    id: z.string().min(1).max(12),
+  },
+
   // ho_so.ts
   keHoachSave: {
     sc_id: z.string(),
@@ -222,6 +234,69 @@ export const RPC_SCHEMAS: Record<string, z.ZodRawShape> = {
   // W3.1-reg — dashboardAll: bảng điều khiển xưởng (kanban + KPI), KHÔNG tham số.
   // Mọi chốt quyền/401/403-ketoan ở core (lib/core/xuong.ts); dispatch args||{}.
   dashboardAll: {},
+
+  // ── W4-reg (đợt gộp) — admin.ts + search.ts + auth.ts changePassword ─────
+  // Trần số học khớp 2 tầng với core (admin.ts str()/clamp; search.ts
+  // Q_MIN=2/LIMIT_MAX=30) — "không tin schema một phía" (khuôn tonKho/thanhLyList).
+  // admin.ts tự validate lại toàn bộ input: zod là tầng 1 (MCP inputSchema +
+  // tài liệu HTTP), core là tầng 2 (fail-closed cho client gọi thẳng /api/rpc).
+  userList: {
+    include_deleted: z.boolean().optional(),
+    // core userList:106–108 clamp 1..500, rác → 100.
+    limit: z.number().int().min(1).max(500).optional(),
+  },
+  userAdd: {
+    name: z.string().min(1).max(32), // cột name = tên đăng nhập (schema v5 — header admin.ts)
+    login: z.string().min(1).max(32).optional(), // alias — mặc định = name (admin.ts:146)
+    // CHECK users.role 5 giá trị (db/schema.sql:7); core TỪ CHỐI role lạ
+    // (không fallback 'tho' như v3.6 — admin.ts:153–156).
+    role: z.enum(['admin', 'giamdoc', 'xuong', 'ketoan', 'kho']),
+    // omitted → DEFAULT_PASSWORD + must_change=1 (v3.6:153–156).
+    password: z.string().min(6).max(100).optional(),
+  },
+  userSetPassword: {
+    id: z.string().min(1).max(12),
+    // omitted → đặt về DEFAULT + BẬT must_change (admin.ts:226–229).
+    password: z.string().min(6).max(100).optional(),
+  },
+  userSetActive: {
+    id: z.string().min(1).max(12),
+    // core nhận whitelist thật hơn (true/false/1/0/'1'/'0'/'true'/'false' —
+    // admin.ts:268–270); zod siết khuôn JSON chuẩn cho MCP client.
+    active: z.boolean(),
+  },
+  thresholdsGet: {
+    // omitted → trả đủ 3 ngưỡng (shape v3.6 thresholds():604–609); key lạ
+    // bị core TỪ CHỐI (whitelist chặn poisoning counter_* — admin.ts:56–63).
+    key: z.enum(['duyet_sc_nguong', 'duyet_mua_nguong', 'khau_hao_nam']).optional(),
+  },
+  thresholdsSet: {
+    key: z.enum(['duyet_sc_nguong', 'duyet_mua_nguong', 'khau_hao_nam']),
+    // Number(value)||0 / ≥1 semantics ở core (admin.ts:364–374) — string số
+    // hợp lệ ('123456') nên union; zod chỉ chặn kiểu rác.
+    value: z.union([z.number(), z.string().min(1).max(20)]),
+  },
+  // core globalSearch(_api, {q, limit?}) — giữ ĐÚNG signature v4 (search.ts:69).
+  globalSearch: {
+    // min 2 theo search.ts Q_MIN; max 100 = trần input hygiene (ILIKE param,
+    // chuỗi dài hơn vô nghĩa với mã phiếu/biển số/tên vật tư).
+    q: z.string().min(2).max(100),
+    // core clamp 1..30 (search.ts:76–78) — trần zod khớp lõi (2 tầng).
+    limit: z.number().int().min(1).max(30).optional(),
+  },
+  // lib/auth.ts changePassword(api,{old_password,new_password}) — TỰ SERVICE:
+  // không có id actor trong args (chống IDOR —fn chỉ đụng chính tài khoản
+  // đăng nhập). Verify old + cấm default + ≥6 ký tự phán quyết ở lõi:215–234.
+  changePassword: {
+    old_password: z.string().min(1).max(100),
+    new_password: z.string().min(6).max(100),
+  },
+
+  // ── W5-reg — boss.ts: hai fn READ tổng hợp cho BOSS, KHÔNG tham số.
+  // Shape rỗng → getToolInputSchema = z.object({}).passthrough() (dispatch
+  // args||{}); mọi phán quyết/fail-closed ở lõi (lib/core/boss.ts).
+  bossDashboard: {},
+  bossAlerts: {},
 };
 
 /**

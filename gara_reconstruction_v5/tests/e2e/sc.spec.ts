@@ -303,8 +303,21 @@ test.describe('SC W2.5-flag — /sc gán giá NCC wire don_gia→gd_dk', () => {
         )
         .toBe(GIA_OLD);
       const t = await pool3.query(`SELECT tong_vt, tong FROM sc WHERE id=$1`, [scId]);
-      expect(Number(t.rows[0].tong_vt), 'tong_vt = so_luong × gd_dk').toBe(2 * GIA_OLD);
-      expect(Number(t.rows[0].tong), 'tong chứa phần vật tư').toBe(2 * GIA_OLD);
+      // FIX RÀ W3.5: core scAddVatTu commit INSERT + recalcScTotals là HAI
+      // run() kế tiếp (không tx đơn) ⇒ một read đơn phát ở ngay sau poll gd_dk
+      // có thể trượt vào cửa sổ giữa 2 commit (flake cold-server实测 2026-09-01).
+      // Poll cùng mức độ bền như assert gd_dk phía trên — giá trị cuối KHÔNG đổi.
+      await expect
+        .poll(
+          async () => {
+            const tt = await pool3.query(`SELECT tong_vt, tong FROM sc WHERE id=$1`, [scId]);
+            return Number(tt.rows[0]?.tong_vt ?? -1);
+          },
+          { timeout: 20_000, message: 'tong_vt = so_luong × gd_dk (recalc sau INSERT)' }
+        )
+        .toBe(2 * GIA_OLD);
+      const t2 = await pool3.query(`SELECT tong FROM sc WHERE id=$1`, [scId]);
+      expect(Number(t2.rows[0].tong), 'tong chứa phần vật tư').toBe(2 * GIA_OLD);
     } finally {
       await pool3.end();
     }
@@ -329,7 +342,15 @@ test.describe('SC W2.5-flag — /sc gán giá NCC wire don_gia→gd_dk', () => {
       await scRow2.getByRole('button', { name: 'Chi tiết' }).click();
       const modal2 = page.locator('div.fixed.inset-0.z-50').filter({ hasText: 'Chi tiết SC' });
       await expect(modal2.getByRole('heading', { name: /Chi tiết SC/ })).toBeVisible({ timeout: 20_000 });
-      await modal2.getByTestId('sc-vt-select').selectOption(vattu);
+      // RÀ W3.5-UI (hành vi ĐỔI CÓ CHỦ ĐÍCH theo gate dòng v3.6 — sc.ts:182/219 +
+      // page.tsx linesLocked): bước cũ ở đây là `selectOption(vattu)` rồi assert
+      // block ẩn — giả định UI cũ (modal mở select mọi trạng thái). UI W3.5 KHÓA
+      // input VT/CV khi tt != de_xuat ⇒ selectOption treo. Assertion mới chứng
+      // minh CẢ HAI: (1) select bị disable + hint khóa hiện, (2) block gán giá
+      // (chỉ de_xuat render) vẫn ẩn đúng như ý cũ.
+      const vtSel2 = modal2.getByTestId('sc-vt-select');
+      await expect(vtSel2, 'dang_sua → select VT phải DISABLE (gate v3.6 W3.5)').toBeDisabled({ timeout: 20_000 });
+      await expect(modal2.getByTestId('sc-edit-lock-hint').first()).toBeVisible();
       await expect(modal2.getByTestId('sc-gia-ncc')).toHaveCount(0); // chỉ de_xuat mới gán giá
       await page.screenshot({ path: 'test-results/sc-04-hidden-when-dang-sua.png', fullPage: true });
     }

@@ -3,6 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import GlobalSearch from '@/components/GlobalSearch';
+import WorkspaceSelector from '@/components/WorkspaceSelector';
+import EditToggle from '@/components/EditToggle';
 
 interface NavProps {
   role: string;
@@ -108,33 +111,51 @@ export default function Nav({ role, name }: NavProps) {
 
   return (
     <>
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 border-b border-slate-200 bg-white px-4 py-2 flex items-center justify-between">
-        <span className="font-semibold">CencomOS v5.0</span>
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          aria-label={open ? 'Đóng điều hướng' : 'Mở điều hướng'}
-          className="rounded p-2 text-slate-600 hover:bg-slate-100"
-        >
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
+      {/*
+        W4-reg — thanh mobile topbar (lg:hidden): Nav là chủ header trên mobile,
+        nên GlobalSearch mount ở ĐÂY cho breakpoint nhỏ (layout.tsx giữ bản
+        desktop `hidden lg:flex` — không bao giờ hiện đồng thời 2 ô search).
+
+        W4.4 — cùng chỗ này mount WorkspaceSelector + EditToggle (bản mobile
+        của bộ điều khiển v4 Topbar): theme/ws-switch + chế độ xem/sửa của
+        giám đốc phải đổi được trên điện thoại, không chỉ desktop.
+      */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 border-b border-slate-200 bg-white px-4 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-semibold">CencomOS v5.0</span>
+          <span className="flex items-center gap-2">
+            <WorkspaceSelector />
+            <EditToggle />
+          </span>
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            aria-label={open ? 'Đóng điều hướng' : 'Mở điều hướng'}
+            className="rounded p-2 text-slate-600 hover:bg-slate-100"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d={
-                open
-                  ? 'M6 18L18 6M6 6l12 12'
-                  : 'M4 6h16M4 12h16M4 18h16'
-              }
-            />
-          </svg>
-        </button>
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d={
+                  open
+                    ? 'M6 18L18 6M6 6l12 12'
+                    : 'M4 6h16M4 12h16M4 18h16'
+                }
+              />
+            </svg>
+          </button>
+        </div>
+        <div className="mt-2" data-testid="mobile-global-search">
+          <GlobalSearch />
+        </div>
       </div>
 
       <nav

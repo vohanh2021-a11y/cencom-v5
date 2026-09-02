@@ -1,0 +1,199 @@
+/* app/in/print.css — W4.3: layout A4 portrait cho 8 mẫu in (port tiêu chí v3.6 docx + v4 draft CSS). */
+
+.print-wrap {
+  background: #f3f4f6;
+  padding: 24px;
+  font-family: 'Times New Roman', system-ui, sans-serif;
+}
+
+.toolbar {
+  width: 210mm;
+  margin: 0 auto 12px;
+  display: flex;
+  gap: 8px;
+}
+.toolbar .btn {
+  border: 1px solid #666;
+  background: #fff;
+  color: #111;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.toolbar .btn-primary {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.a4 {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto 16px;
+  background: #fff;
+  padding: 14mm 13mm;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  color: #111;
+  font-size: 13px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.a4 .c-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #111;
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}
+.a4 .c-header .rep {
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.a4 .c-header .rep b {
+  font-size: 13px;
+}
+.a4 .c-header .org {
+  text-align: right;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.a4 h1 {
+  font-size: 18px;
+  text-align: center;
+  margin: 6px 0 2px;
+}
+.a4 .mau {
+  text-align: center;
+  color: #555;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.a4 .so-phieu {
+  text-align: center;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.a4 .sub {
+  text-align: center;
+  color: #555;
+  margin-bottom: 16px;
+}
+.a4 .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin-bottom: 8px;
+}
+.a4 .meta .f b {
+  margin-right: 4px;
+}
+.a4 .missing {
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px dashed #b45309;
+  padding: 6px 8px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.a4 table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+.a4 th,
+.a4 td {
+  border: 1px solid #999;
+  padding: 5px 7px;
+  text-align: left;
+  font-size: 12px;
+}
+.a4 th {
+  background: #eee;
+}
+.a4 td.num,
+.a4 th.num {
+  text-align: right;
+}
+.a4 .tong {
+  margin-top: 12px;
+  text-align: right;
+  font-size: 14px;
+}
+.a4 .chu {
+  margin-top: 4px;
+  font-style: italic;
+}
+.a4 .sig {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 36px;
+  text-align: center;
+}
+.a4 .sig .box {
+  flex: 1;
+  font-weight: bold;
+  font-size: 12px;
+}
+.a4 .sig .box .ky {
+  margin-top: 8px;
+  color: #666;
+  font-weight: normal;
+  font-size: 11px;
+  border-top: 1px dotted #999;
+  padding-top: 30px;
+}
+.a4 .note {
+  margin-top: 14px;
+  font-size: 11px;
+  color: #444;
+  font-style: italic;
+}
+.a4 .step-ok {
+  color: #166534;
+}
+.a4 .step-bad {
+  color: #991b1b;
+}
+
+/* khi in: mỗi mẫu một trang A4 đứng, không đổ bóng, ẩn toolbar */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+  .print-wrap {
+    background: #fff;
+    padding: 0;
+  }
+  .toolbar {
+    display: none;
+  }
+  .a4 {
+    width: auto;
+    min-height: auto;
+    box-shadow: none;
+    margin: 0;
+    padding: 0;
+    page-break-after: always;
+    break-after: page;
+  }
+  .a4:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  .a4 table {
+    page-break-inside: auto;
+  }
+  .a4 tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .a4 thead {
+    display: table-header-group;
+  }
+}

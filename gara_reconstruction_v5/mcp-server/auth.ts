@@ -68,6 +68,32 @@ const READ_TOOLS = new Set<string>([
   // role='xuong'. ScWorkSet/scWorkDel/scVtUpd/scVtDel/scSetDeadline KHÔNG vào đây —
   // WRITE ghi DB (dòng sc_congviec/sc_vattu/sc + audit) → MCP_WRITE_TOOLS='' mặc định deny.
   'thoList',
+  // W3.5: scApprove/scTongDuyet KHÔNG vào READ_TOOLS — cả 2 là WRITE:
+  // scApprove UPDATE sc.trang_thai/nguoi_duyet/ngay_duyet + audit; scTongDuyet
+  // INSERT sc_phien_ban (snapshot đóng hồ sơ) + audit (core/sc.ts). Mặc định
+  // MCP_WRITE_TOOLS='' → deny (tool-docs.part6 mode:'WRITE'), bật ghi có chủ đích.
+  // W4-reg: globalSearch — READ thuần (META ['sc','xem'], core/search.ts): 4
+  // SELECT ILIKE không ghi gì. userList/thresholdsGet — READ theo BẢN CHẤT
+  // (SELECT users投影 + SELECT config); quyền admin thật do core gateAdmin
+  // enforce (envelope 403 khi MCP account không admin) — vào READ_TOOLS để
+  // phân loại đúng khuôn "READ_TOOLS phản ánh bản chất fn" (phòng 403 sai lệch
+  // khi MCP_WRITE_TOOLS='' như bài học W1a phieuList).
+  'globalSearch',
+  'userList',
+  'thresholdsGet',
+  // W5-reg: bossDashboard/bossAlerts — READ thuần (META ['sc','xem'],
+  // core/boss.ts): chỉ SELECT qua các fn lõi tonKho/dmList/dashboardAll/query
+  // sc quá hạn — không ghi gì, không cần allowlist. Thiếu 2 dòng này thì
+  // guard doc.mode vẫn cho qua, nhưng READ_TOOLS phải phản ánh đúng bản chất
+  // fn (bài học W1a phieuList).
+  'bossDashboard',
+  'bossAlerts',
+  // W4-reg: userAdd/userSetPassword/userSetActive/thresholdsSet KHÔNG vào
+  // READ_TOOLS — WRITE ghi users/config + audit (INSERT/UPDATE/soft-delete).
+  // changePassword cũng KHÔNG — dù chỉ đụng tài khoản của chính MCP actor:
+  // bản chất là WRITE (UPDATE pass_hash + must_change + audit doi_mat_khau),
+  // mặc định MCP_WRITE_TOOLS='' deny là ĐÚNG — không cho agent âm thầm xoay
+  // credential của service account; bật có chủ đích mới đổi được mk.
 ]);
 
 /**

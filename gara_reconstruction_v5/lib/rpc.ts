@@ -7,6 +7,13 @@ import * as act from './core/activity';
 import * as xe from './core/xe';
 import * as asset from './core/asset';
 import * as xuong from './core/xuong';
+import * as boss from './core/boss';
+// W4-reg (đợt gộp): quản trị tài khoản + ngưỡng duyệt (core/admin.ts — gateAdmin
+// TRỰC TIẾP trong lõi, theo pattern admin.ts header), tìm kiếm toàn cục
+// (core/search.ts) và đổi mật khẩu tự thân (lib/auth.ts — port handlers.js:551).
+import * as admin from './core/admin';
+import * as search from './core/search';
+import { changePassword as authChangePassword } from './auth';
 import { can, ROLES } from './perm';
 
 export const FN_LIST: string[] = [
@@ -81,6 +88,48 @@ export const FN_LIST: string[] = [
   'scVtDel',
   'scSetDeadline',
   'thoList',
+  // W3.5 (trục XƯỞNG — DUYỆT QC206): scApprove (duyệt theo ngưỡng tiền
+  // duyet_sc_nguong, de_xuat→da_duyet) + scTongDuyet (tổng duyệt = chốt snapshot
+  // bất biến sc_phien_ban). Port v3.6 sc.js:190–256 + perm.js:109–117.
+  'scApprove',
+  'scTongDuyet',
+  // W4-reg (đợt gộp — fn đã có core từ W4.1/W4.2): QUẢN TRỊ TÀI KHOẢN + NGƯỠNG.
+  // 4 fn user + 2 fn thresholds port v3.6 handlers.js:127–186/604–618
+  // (lib/core/admin.ts). v3.6 KHÔNG đặt chúng trong rpcMeta — chặn bằng
+  // adminOnly list (handlers.js:652–654; userList tọt rpcMeta ['report','xem']
+  // nhưng core v5 gate admin NGAY TRONG LÕI — siết có chủ đích, xem header
+  // admin.ts). Ở v5 META ['user','admin']/['config','admin'] chỉ là DÒNG AN
+  // TOÀN: MATRIX (lib/perm.ts) không cấp module 'user'/'config' cho role nào
+  // ngoài admin (bypass can() dòng 33) → non-admin fail-closed 403 ngay tại
+  // dispatch, core là lớp chắn thứ hai.KHÔNG đổi hành vi core — reg gọi y chang.
+  'userList',
+  'userAdd',
+  'userSetPassword',
+  'userSetActive',
+  'thresholdsGet',
+  'thresholdsSet',
+  // W4-reg · globalSearch: tìm toàn cục 4 bảng sc/xe/dm/vattu (v4
+  // packages/core/src/search.ts — v3.6 không có fn này). META ['sc','xem']
+  // đúng dự kiến search.ts header dòng 27–29 ("search.xem mọi role").
+  'globalSearch',
+  // W4-reg · changePassword: user TỰ đổi mật khẩu của chính mình (v3.6
+  // publicFns handlers.js:668–674 + whitelist must_change index.js:155
+  // — port vào route.ts MUST_CHANGE_WHITELIST W4.1). KHÔNG phải OPEN: handler
+  // đọc api.auth.current() (nhân actor) → phải đăng nhập. Phán quyết ở CORE
+  // (verify mk cũ + chống brute-force + cấm về default), không phải role —
+  // MỌI vai đã đăng nhập đều được đổi mk của mình, kể cả đang bị must_change
+  // khóa. META ['security','doi_mk']: MATRIX cấp security.doi_mk cho CẢ 5 vai
+  // (tự service ≠ quyền dữ liệu).
+  'changePassword',
+  // W5-reg · bossDashboard/bossAlerts: bảng tổng quan + chuông cảnh báo cho
+  // BOSS (lib/core/boss.ts — READ thuần, lắp ráp từ dashboardAll/tonKho/dmList
+  // + 1 query SC quá hạn; không tham số, envelope ở lõi, fail-closed khi chưa
+  // đăng nhập). META ['sc','xem']: MATRIX cấp sc.xem cho CẢ 5 vai + admin
+  // bypass → dispatch mở mọi vai, nhưng các NHÁN nhạy cảm (kpi/ngưỡng duyệt)
+  // tự rỗng với vai không được core cho (ketoan chặn dashboardAll; dm/ton
+  // theo kho.xem) — quyền tinh nằm TRONG core, đúng pattern dashboardAll.
+  'bossDashboard',
+  'bossAlerts',
 ];
 
 export const OPEN: Set<string> = new Set(['login', 'logout', 'currentUser', 'appInfo']);
@@ -181,6 +230,49 @@ const META: Record<string, [string, string]> = {
   // bản chất là READ dropdown thợ phục vụ gán việc SC → chốt ['sc','xem'] (mọi role xem
   // được phiếu chọn được thợ; dữ liệu trả về chỉ id+name, không nhạy cảm).
   thoList: ['sc', 'xem'],
+  // W3.5 — 2 fn DUYỆT: META ['sc','duy'] đúng khai báo v3.6 handlers.js:680/726
+  // ('scApprove'/'scTongDuyet': ['sc','duy']). MATRIX v5 (lib/perm.ts W3.5
+  // comment): giamdoc (vô hạn) + xuong (nhánh NGƯỠNG ≤ duyet_sc_nguong — thay
+  // vai 'quanly' v3.6 đã gộp) + admin bypass; ketoan/kho fail-closed 403 ngay
+  // tại dispatch (nhất quán v3.6: không 'duy' trong sc MATRIX). Phán quyết
+  // NGƯỠNG + TRẠNG THÁI nằm TRONG core lib/core/sc.ts (envelope business error
+  // chứa 'Giám đốc' — cùng khuôn W2b dmDecide, tập người-duyệt-được ≡ v3.6).
+  scApprove: ['sc', 'duy'],
+  scTongDuyet: ['sc', 'duy'],
+  // ── W4-reg (đợt gộp) — quản trị tài khoản / ngưỡng / search / đổi mk ────
+  // 4 fn user + 2 fn thresholds: admin gate ĐÃ nằm TRONG core (gateAdmin,
+  // lib/core/admin.ts:79–84 — envelope 401/403, pattern "core gate TRƯỚC
+  // dispatch"). META dòng đơn ['user','admin']/['config','admin'] là LƯỚI
+  // fail-closed lớp 1: MATRIX không cấp 2 module này cho vai nào ngoài
+  // admin (bypass can()) → non-admin 403 ngay tại dispatch, không chạm DB.
+  // v3.6 tham chiếu: adminOnly list handlers.js:652–654 (userAdd/
+  // userSetPassword/userSetActive/thresholdsSet ['admin']); userList v3.6
+  // lỏng hơn (rpcMeta ['report','xem'] :720) — core v5 SiẾT về admin theo
+  // task W4.1 (admin.ts — mục "QUYỀN" header + doc thresholdsGet: "siết về
+  // admin có chủ đích"). LỆCH CÓ CHỦ ĐÍCH, đã chốt ở lõi — reg không nới.
+  userList: ['user', 'admin'],
+  userAdd: ['user', 'admin'],
+  userSetPassword: ['user', 'admin'],
+  userSetActive: ['user', 'admin'],
+  thresholdsGet: ['config', 'admin'],
+  thresholdsSet: ['config', 'admin'],
+  // globalSearch: bản chất READ 4 nhóm điều hướng (id/biển số/tên — không lộ
+  // giá trị nhạy cảm ngoài nghiệp vụ). ['sc','xem'] = dự kiến search.ts:28;
+  // mọi role trong MATRIX đều có sc.xem → ≡ "search.xem mọi role" của v4:3.
+  // Lọc is_test/soft-delete đã ở core (search.ts:81–90).
+  globalSearch: ['sc', 'xem'],
+  // changePassword: TỰ SERVICE trên chính tài khoản actor — không phải quyền
+  // module dữ liệu. v3.6 xếp publicFns (mọi vai đăng nhập). ['security',
+  // 'doi_mk'] với MATRIX cấp cho CẢ 5 vai (lib/perm.ts W4-reg comment) →
+  // dispatch mở cho mọi role; phán quyết thật (verify mk cũ, brute-force,
+  // cấm default, clear cờ must_change) ở lib/auth.ts changePassword:209–249.
+  changePassword: ['security', 'doi_mk'],
+  // W5-reg: boss fn — bản chất READ tổng hợp (sc/xe/kho/config read). Core
+  // (lib/core/boss.ts) đã bọc Promise.allSettled từng nguồn + fail-closed khi
+  // chưa đăng nhập; gate dispatch ['sc','xem'] = mọi vai đều thử được, nhánh
+  // nhạy cảm tự rỗng theo quyền CORE của từng nguồn (không lộ chéo).
+  bossDashboard: ['sc', 'xem'],
+  bossAlerts: ['sc', 'xem'],
 };
 
 /* eslint-disable no-unused-vars */
@@ -281,6 +373,36 @@ const HANDLERS: Record<string, (_api: Api, _args: any) => Promise<any>> = {
   scVtDel: (api, a) => sc.scVtDel(api, a),
   scSetDeadline: (api, a) => sc.scSetDeadline(api, a),
   thoList: (api, _a) => sc.thoList(api),
+  // W3.5: core lib/core/sc.ts — scApprove/scTongDuyet tự trả ENVELOPE
+  // {ok:false,error} cho mọi chặn nghiệp vụ (200 + result.ok=false — quy ước
+  // hàm mới W1b+, không throw 400; quyền trị giá ở core, quyền ma trận ở META).
+  scApprove: (api, a) => sc.scApprove(api, a),
+  scTongDuyet: (api, a) => sc.scTongDuyet(api, a),
+  // W4-reg: core/admin.ts + core/search.ts + lib/auth.ts — TẤT CẢ tự trả
+  // ENVELOPE {ok,result}/{ok,error}, không throw cho lỗi nghiệp vụ (quy ước
+  // hàm mới W1b+; route bọc thêm 1 tầng {ok:true,result:<envelope>}).
+  // 4 fn user + 2 fn thresholds: gateAdmin TRONG lõi (401/403 envelope) là
+  // lớp chắn thứ hai sau dispatch META; args đã qua zod ở tầng client/MCP
+  // (lib/contracts.ts) + lõi tự validate lại trần 2 tầng (str()/whitelist).
+  userList: (api, a) => admin.userList(api, a),
+  userAdd: (api, a) => admin.userAdd(api, a),
+  userSetPassword: (api, a) => admin.userSetPassword(api, a),
+  userSetActive: (api, a) => admin.userSetActive(api, a),
+  thresholdsGet: (api, a) => admin.thresholdsGet(api, a),
+  thresholdsSet: (api, a) => admin.thresholdsSet(api, a),
+  // globalSearch(api, {q, limit?}) — search.ts:69 `globalSearch(_api,{q})`
+  // giữ NGUYÊN signature khi reg (tên fn + khuôn args ≡ v4); q min 2, limit
+  // clamp 1..30 ở lõi.
+  globalSearch: (api, a) => search.globalSearch(api, a),
+  // changePassword(api, {old_password,new_password}) — lib/auth.ts:209.
+  // Không vào OPEN (cần actor); không cần Mata quyền dữ liệu — self-service.
+  changePassword: (api, a) => authChangePassword(api, a),
+  // W5-reg: core/boss.ts exports bossDashboard(api) / bossAlerts(api) — KHÔNG
+  // tham số, tự trả dữ liệu thô (BossDashboard / string[]), mỗi nguồn bọc
+  // allSettled riêng + fail-closed rỗng khi chưa đăng nhập (không throw; route
+  // bọc {ok:true,result}). Dispatch args||{} → bỏ qua args, an toàn.
+  bossDashboard: (api, _a) => boss.bossDashboard(api),
+  bossAlerts: (api, _a) => boss.bossAlerts(api),
 };
 /* eslint-enable no-unused-vars */
 

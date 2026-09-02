@@ -10,3 +10,6 @@ node_modules/
 /tests/ux/uat-tour.mp4
 /tests/ux/console-errors.txt
 /tests/ux/results.json
+
+# playwright storageState (session cookie — never commit)
+.playwright-auth-*.json
