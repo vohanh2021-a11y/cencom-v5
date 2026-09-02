@@ -3,6 +3,60 @@
 > Nhật ký thay đổi của dự án v4. Bản tại thư mục v3.6 (`docs/CHANGELOG.md`) ghi nhận theo dõi Workspace.
 > Định dạng: `## YYYY-MM-DD — tiêu đề`.
 
+## 2026-09-02 — Release v5.2.0 — Hội tụ v3.6 + v4 + v5 (W0–W4 HOÀN THÀNH, MCP nhúng)
+
+> Plan: `PLAN_HOI_TU_01.09.md`. Baseline: v5.1.0 (`65e8722`→`08996b4`). Mọi wave có gate riêng:
+> **W0** `aaf11c9` → **W1** `da3091e` → **W2+W3** `a262dad` → **W4** `9e26015`. Version `5.2.0` đã bump;
+> tag `v5.2.0` chờ remote git push (W5.4–W5.5, việc của chủ dự án).
+
+### W0 — Fix nóng nền móng (`aaf11c9`, 01.09) — gate 336/336
+- **Race condition tồn kho**: `withTransaction` vào `lib/db.ts`; row-guard `ton >= sl RETURNING` (bỏ check-then-act) trong `nhapKho/xuatKho/dmNhap` — `kho_race.test.ts` 4/4 (10× xuat song song ton 40 → đúng 6 ok, ton cuối = 4).
+- **`recalcScTotals()`**: 1 statement atomic, `tong_vt = CASE(gd_tt>0, gd_tt, gd_dk)` — bước 8 QC206 (tổng tiền SC) không còn phụ thuộc data gõ tay; `sc_totals.test.ts` 8/8.
+- Rà `lib/rpc.ts` FN_LIST: v5 registry đủ phạm vi; `dmFromBaoGia` (AI-OCR v4) xác nhận KHÔNG port (chốt BỎ).
+- Vẽ kiến trúc tổng thể: `docs/convergence/00_CAU_TRUC_HE_THONG.md` + báo cáo 01–03.
+
+### W1 — Trục ③ KHO (`da3091e`, 01.09) — gate tsc=0, conformance 378/378 (18 suites), Playwright kho 4/4
+- **Phiếu nhập/xuất 2 tầng**: `nhap_xuat.phieu_id` group-by, `phieuList/phieuGet` (filter whitelist + phân trang, tương thích dữ liệu cũ).
+- **`tonKho`**: cảnh báo low/thieu + `ton_cu_hong` + aggregate `giaTriTonKho` (SQL, không sum-array) + limit ≤200.
+- **Lịch sử giá**: bảng `vattu_gia_lich_su` + hook `ghiGiaLichSu` trong transaction (`nhapKho/dmNhap`, dedupe liên tiếp) + `giaLichSuList`.
+- **Hư hỏng & thanh lý**: `ton_cu_hong`, `thanh_ly` (row-guard "Không đủ tồn hư hỏng"), `autoGenCuHong` chống trùng theo cặp (sc, vattu), `thanhLyList`; **`autoXuatSC`** — fix bug kế thừa v3.6 (đếm cả phiếu thu hồi), xuất đúng 1 PXX khi đủ cầu.
+- **GTTV asset**: `lib/core/asset.ts` mới — `assetXe/assetReport` = nguyên giá − khấu hao + chi phí, 1 GROUP BY không N+1, fallback `khau_hao_nam=10`.
+- UI kho 4 tab: phiếu expandable, badge tồn kho đỏ, form nhập/xuất loại cu_hong/thanh_ly, realtime SSE inline.
+- MCP: `server-core.ts` tách loop dùng chung stdio+HTTP; resources/prompts parity qua HTTP; `mcp_http.test` 5/5; registry động **FN 43 / tools 39**.
+
+### W2 — Trục ② MUA SẮM DM (`a262dad`, 01.09) — gate dm 16/16, e2e dm 4/4
+- Chuỗi đầy đủ: `dmList/dmDetail/dmListBySc/dmDelete` (soft-delete có ràng buộc) · `dmFromSC` (gom `sc_vattu tt='can_mua'` 1 DM, chặn DM mở trùng) · `dmAutoBu` (quét `ton < ton_min` → tự tạo DM bù).
+- **`dmDecide`** duyệt/từ chối + ngưỡng `duyet_mua_nguong` = 5.000.000đ (v3.6 seed nguyên bản: admin/giamdoc vô hạn, ketoan ≤ ngưỡng) + audit + `dmNhap` gate `da_duyet`.
+- UI `/kho/dm`: danh sách + filter trạng thái + nút duyệt/từ chối theo quyền; cột giá NCC cũ (top 8) khi thêm VT vào SC.
+- MCP: resource `dm://{dm_id}` + prompt `quy-trinh-mua-sam` + tool-docs part5.
+
+### W3 — Trục ① XƯỞNG (`a262dad` + hoàn thiện trong `9e26015`, 01–02.09) — gate 572/572 (23 suites), rbac 269, e2e kanban 4/4 + sc 1/1; phần chốt (scTongDuyet/snapshot) verify trong gate W4 714/714
+- **Kanban 5 cột 1-xe-1-thẻ**: `dashboardAll` port nguyên v3.6 (gộp SC theo BKS, ETA gần nhất, % completion, badge breakdown); cột enum v5 thật; ưu tiên trễ hạn.
+- **KPI xưởng 11 chỉ số**: `xuongDashboard` + cache TTL 60s theo vai (`lib/cache.ts` single-flight, không N+1).
+- **6fn dòng CV/VT**: `scWorkSet/scWorkDel/scVtUpd/scVtDel/scSetDeadline/thoList` (+ cổng `dong_not`) — gate chỉ sửa khi chưa chốt; `scAddVatTu` nhận `don_gia` (`gd_dk`).
+- **W3.4/W3.5 chốt trong W4**: `scApprove`, **`scTongDuyet` + bảng `sc_phien_ban`** — snapshot bất biến 1 lần/phiếu, chặn sửa sau chốt; **W3.7 MCP**: resource `xuong://dashboard` + prompt `quy-trinh-xuong`.
+
+### W4 — Cross-cutting + AI cho sếp (`9e26015`, 02.09) — gate **tsc=0, conformance 714/714 (27 suites)**
+- **Admin user-mgmt 7 fn**: `userList/userAdd/userSetPassword/userSetActive/thresholdsGet/thresholdsSet` + changePassword; **enforce `must_change`** (mọi RPC ngoài đổi mật khẩu → 403 khi chưa đổi MK mặc định) — 41 test.
+- **GlobalSearch**: `globalSearch` fn (ILIKE escape wildcard, chặn Soft-Delete/is_test) + UI CommandPalette mount `(app)/layout` — 11 test.
+- **In A4 + export**: 8 mẫu `/in/*` (kế hoạch, kiểm tu, báo giá, nhập kho, xuất kho, nghiệm thu, bảng kê, hồ sơ SC) — in HTML A4, KHÔNG .docx; export CSV an toàn (escape formula injection) — 12 test.
+- **Đa workspace 4 trục** (Quản trị/Mua sắm/Kho/Xưởng) + `ReadOnlyGuard` PA1 (giám đốc view-only) + 3 theme Glass/Bold/Calm (`ThemeProvider/EditToggle`); loc `?q=` trên 4 trang xe/kho/dm/sc.
+- **PWA** (manifest + service worker + `PwaRegister`) — offline shell + cài đặt như app.
+- **NotificationCenter**: SSE 5 kênh (presets), realtime badge.
+- **Gói AI cho sếp**: `bossDashboard/bossAlerts` (`lib/core/boss.ts`, META `['sc','xem']`, +2 tool registry-động) — hỏi "tình hình?" → KPI tổng 11 + VT thiếu + DM chờ duyệt + SC trễ hạn.
+- **MCP tại release**: **32 tool trùng tên fn RPC + 2 resource (`sc://`, `xe://`) + 1 prompt (QC206) + HTTP LAN** (Bearer timing-safe, session) — kế thừa v5.1.0; từ W1→W4 mở rộng **động** theo registry (`FN_LIST \ OPEN`, test không hardcode count): hiện ~**69 fn → tools động**, resources thêm `dm://`, `kho://tai-san/`, `xuong://dashboard`, prompt thêm `quy-trinh-mua-sam`, `quy-trinh-xuong`.
+- **Release**: bump `package.json → 5.2.0`, consistency OK; docs hội tụ cập nhật (file này, `MASTER_PLAN.md`, `CHANGELOG_MCP.md`).
+
+### Con số release
+| Wave | Commit | Conformance |
+|---|---|---|
+| W0 | `aaf11c9` | 336/336 |
+| W1 | `da3091e` | 378/378 |
+| W2+W3 | `a262dad` | 572/572 |
+| W4 + release | `9e26015` | **714/714 (27 suites)** |
+
+E2E Playwright: kho 4/4 · dm 4/4 · kanban 4/4 · sc 1/1 — 13/13.
+
 ## 2026-08-15 — Ghi nhận checklist đối chiếu UI từ v3.6 (v3.6.3)
 
 - Tạo `docs/UI_DOI_CHIEU_TU_V3.md` — danh sách BẮT BUỘC đối chiếu khi port giao diện sang Next.js/Tailwind:

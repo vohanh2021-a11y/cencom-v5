@@ -138,12 +138,12 @@
 
 
 ---
-## GPS TIẾN ĐỘ (cập nhật live 01.09)
+## GPS TIẾN ĐỘ (cập nhật live 02.09)
 | Wave | Trạng thái | Gate thật | Commit |
 |---|---|---|---|
 | W0 FIX NỀN | DONE | tsc=0 · 336/336 · race 4/4 · totals 8/8 | aaf11c9 |
 | W1 KHO | DONE | 378/378 · e2e kho 4/4 · tools→40 động | da3091e |
 | W2 DM | DONE | dm_read+decide 16/16 · e2e dm 4/4 · ngưỡng 5tr (v3.6 seed.js:260) · res/prompt MCP | a262dad |
-| W3 XUONG | ~70% | dashboardAll+cache 21/21 · 6 fn dong SC 53/53 · rbac 269 · e2e kanban 4/4 + sc 1/1 · CON W3.5: scApprove+scTongDuyet+sc_phien_ban | (tiep) |
-| W4 CROSS+AI | CHO | admin7fn+must_change · search · in A4 · PA1 · PWA · boss pack | |
-| W5 RELEASE | CHO | >=590 + bump v5.2.0 + docs + (push khi co remote) | |
+| W3 XUONG | DONE | dashboardAll+cache 21/21 · 6 fn dong SC 53/53 · rbac 269 · e2e kanban 4/4 + sc 1/1 · W3.4/3.5 (scApprove/scTongDuyet+sc_phien_ban) + W3.7 MCP res/prompt — hoàn tất trong batch W4 | a262dad + 9e26015 |
+| W4 CROSS+AI | DONE | tsc=0 · **714/714 (27 suites)** · admin 7fn+must_change 41 · search 11 · in A4 8 mẫu + CSV 12 · workspace PA1+3 theme · PWA+sw · NotificationCenter SSE · bossDashboard/bossAlerts (+2 tools) · rbac 329/329 | 9e26015 |
+| W5 RELEASE | IN_PROGRESS | bump 5.2.0 OK · docs (MASTER_PLAN/CHANGELOG/CHANGELOG_MCP) đang cập nhật · tag `v5.2.0` + push CHỜ remote git URL (việc user) | (tiep) |

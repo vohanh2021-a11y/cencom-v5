@@ -1,4 +1,4 @@
-# MASTER PLAN — cencomOS gara v5.0 (cập nhật 2026-08-21)
+# MASTER PLAN — cencomOS gara v5.0 (cập nhật 2026-09-02 — release v5.2.0)
 
 > Bản chi tiết: `gara_reconstruction_v5/docs/PLAN_14.08_supa.md`; kiến trúc: `docs/Architect.md`;
 > kế hoạch GĐ2/GĐ3 chi tiết: `gara_reconstruction_v5/docs/PLAN_HOAN_THIEN_G2_G3.md`, `gara_reconstruction_v5/docs/PLAN_GIAIDOAN_3.md`;
@@ -10,8 +10,8 @@
 
 ## 0. Tóm tắt GPS (đọc nhanh)
 
-- **Vị trí hiện tại:** ✅ `GĐ1–GĐ3 xong` (baseline đã commit `3a84af4`), ⏳ `GĐ4/GĐ5 đang draft (untracked)`, 🛑 `GĐ6/GĐ10 chưa bắt đầu`.
-- **App v5 đã dùng được:** build xanh, UAT 20/20, 0 lỗi, conformance 236/236, có Docker on-prem + CI/CD + monitoring + rollback.
+- **Vị trí hiện tại (02.09):** ✅ `GĐ1–GĐ5 xong` + `GĐ8 DONE` (714/714 conformance) — hội tụ v5.2.0 (`PLAN_HOI_TU_01.09` W0–W4, commits `aaf11c9`→`9e26015`); W5 release đang chạy docs/bump; 🛑 `GĐ6/GĐ9/GĐ10 chưa xong`.
+- **App v5 đã dùng được:** build xanh, UAT 20/20, conformance 714/714 (27 suites), MCP 32+2+1+HTTP mở rộng động, PWA + workspace 4 trục + in A4.
 - **Chiến lược deploy:** LAN (on-premise) trước → xuất về hệ thống công ty sau. **KHÔNG Vercel.**
 - **Vấn đề còn lại:** gộp 2 codebase, rồi mới chạy full conformance + E2E + deploy LAN.
 
@@ -58,23 +58,23 @@ v5 là **monorepo NPM workspaces** (root `package.json` có `"workspaces": ["pac
 | GĐ1 | Base reconstruction v5: schema PG + core port + POST /api/rpc + Realtime + auth/perm | App chạy, xe=42, biểu_ma=97 | ✅ (monorepo: `packages/core` + `packages/db`; baseline `gara_reconstruction_v5` đã commit) |
 | GĐ2 | Pre-deploy/Security/Obs/Scripts/CI (Wave A) | OWASP + metrics + scripts + CI | ✅ (`lib/rateLimit.ts`, `middleware.ts`, `/api/health`, `/api/metrics`, `.github/workflows/*`) |
 | GĐ3 | PRODUCTION deploy + monitoring + UX UAT (Wave B/C) | Docker on-prem, CI/CD, health/metrics, rollback, ops docs | ✅ **HOÀN THIỆN** (`3a84af4`, 2026-08-21): build xanh, UAT 20/20, 0 lỗi, conformance 236/236, sửa 5 lỗi thực |
-| GĐ4 | Mở rộng nghiệp vụ (chủ xe·kế toán·bảo dưỗng·ledger·tìm kiếm·mail·list·init) | `packages/core/src/{ketoan,khachhang,baoduong,ledger,search,mail,list,init}.ts`; DB `accounting.sql`/`coa_seed.sql`; migrations `004_gd4.sql`/`005_chu_xe.sql`; 12 spec `*_gd*.test.ts` | ⏳ **Draft UNTRACKED.** ~150 file có trên đĩa, chưa commit, chưa `tsc --noEmit`, chưa chạy test. |
-| GĐ5 | UI toàn bộ màn hình (PC/tablet/ĐT, theme) | `apps/web/app/(app)/{audit,ke-toan,khach-hang,nhac-han,xe,sc/dashboard,kanban}` + components UI mới | ⏳ **Draft UNTRACKED.** |
+| GĐ4 | Mở rộng nghiệp vụ (chủ xe·kế toán·bảo dưỗng·ledger·tìm kiếm·mail·list·init) | `packages/core/src/{ketoan,khachhang,baoduong,ledger,search,mail,list,init}.ts`; DB `accounting.sql`/`coa_seed.sql`; migrations `004_gd4.sql`/`005_chu_xe.sql`; 12 spec `*_gd*.test.ts` | ✅ **DONE qua hội tụ v5.2.0** (`PLAN_HOI_TU_01.09` W0–W4): race-kg `aaf11c9`, kho 2 tầng/GTTV `da3091e`, DM full + xưởng fn `a262dad`, admin+search+boss `9e26015`. (Nhánh draft ketoan/ledger gốc gộp vào UI v5 — không giữ song song.) |
+| GĐ5 | UI toàn bộ màn hình (PC/tablet/ĐT, theme) | `apps/web/app/(app)/{audit,ke-toan,khach-hang,nhac-han,xe,sc/dashboard,kanban}` + components UI mới | ✅ **DONE** (W1–W4 trong `gara_reconstruction_v5`, commit `da3091e`→`9e26015`): UI kho 4 tab, `/kho/dm`, kanban 5 cột 1-xe-1-thẻ, `/sc` dashboard KPI, GlobalSearch, `/in/*` A4 8 mẫu, workspace 4 trục + 3 theme, PWA. |
 | GĐ6 | Performance: pagination/index/MV/cache/export job | Hết nút thắt cũ | 🛑 |
 | GĐ7 | Backup 7 ngày + Archive + partition | `Onpremise/scripts/backup.sh` / `restore.sh` / `init_*` | ✅-partial (committed trong GĐ3) |
-| GĐ8 | Conformance full 327 + E2E | ≥320 pass + Playwright E2E | ⏳ 236/236 (GĐ3) OK; full (gồm 12 spec `_gd*.test.ts`) còn lại |
+| GĐ8 | Conformance full 327 + E2E | ≥320 pass + Playwright E2E | ✅ **DONE** tại `9e26015` (02.09, gate W5-check hiện trường): **714/714 (27 suites)** ≥ 320; Playwright e2e 13/13 (kho 4/4 · dm 4/4 · kanban 4/4 · sc 1/1); rbac 329/329. |
 | GĐ9 | Deploy LAN (on-premise docker-nginx) + hardening | Docker compose, nginx SSE+SSL, localhost HTTPS | ⏳ |
 | GĐ10 | Multi-tenant RLS + thương mại hoá + tag v5.0.0 | docs 2 nơi | 🛑 |
 
 ---
 
-## 4. Trạng thái hiện tại (GPS 2026-08-21)
+## 4. Trạng thái hiện tại (GPS 2026-09-02 — v5.2.0)
 
-- **Đã commit & verify:** `3a84af4` — toàn bộ `gara_reconstruction_v5/` (baseline GĐ1-3). Build standalone xanh, UAT 20/20, conformance 236/236, 5 lỗi self-heal, Docker + CI/CD + monitoring + rollback + docs.
-- **Trên đĩa nhưng chưa commit:** ~528 file untracked thuộc GĐ4/GĐ5 (ketoan, khachhang, baoduong, ledger, search, mail, UI mới, 12 spec test `*-gd*.test.ts`, migration mới, `accounts.sql`/`coa_seed.sql`).
-- **Chưa làm:** GĐ6 (perf tune), GĐ9 (deploy LAN + hardening), GĐ10 (multi-tenant RLS + thương mại hoá).
+- **Phiên bản hiện hành: v5.2.0** (`package.json 5.2.0`; chuỗi commit `aaf11c9`→`da3091e`→`a262dad`→`9e26015`, 01–02.09). Tag `v5.2.0` chờ remote git (W5.4–W5.5).
+- **Đã commit & verify (GĐ1–3):** `3a84af4` — baseline `gara_reconstruction_v5/` (build xanh, UAT 20/20, conformance 236/236, Docker + CI/CD + monitoring + rollback).
+- **Hội tụ v5.2.0 (W0–W4) DONE:** race-condition kho + `recalcScTotals` (W0) · trục KHO 2 tầng/tonKho/cu_hong/GTTV (W1) · trục DM duyệt ngưỡng + UI `/kho/dm` (W2) · trục XƯỞNG kanban/KPI 11/sửa dòng/`scTongDuyet`+`sc_phien_ban` (W3) · cross-cutting admin+must_change/GlobalSearch/`/in/*` A4/workspace PA1+3 theme/PWA/NotificationCenter/boss-dashboard (W4). **Conformance 714/714 (27 suites), tsc=0, rbac 329/329, e2e 13/13.** MCP động theo registry (v5.1.0: 32+2+1+HTTP → hiện ~69 fn; resources `sc/xe/dm/kho-taisan/xuong-dashboard`, prompts QC206/mua-sam/xuong).
+- **Chưa làm / còn treo:** GĐ6 (perf tune MV/pagination sâu), GĐ9 (deploy LAN production + hardening runbook), GĐ10 (multi-tenant RLS + thương mại hoá + tag lịch sử). **Push Git remote (việc của user — chưa có remote).**
 
-→ **Bạn ở cuối GĐ3.** App **đã thực sự có thể deploy**. Tuy nhiên để "hoàn thiện v5" thực sự, cần **gộp hai codebase + kiểm chứng GĐ4** (phần 6).
 
 ---
 
