@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: gara_reconstruction_v5/package-lock.json
 
       - name: Install k6
         run: |
@@ -35,15 +35,15 @@ jobs:
           sudo apt-get install -y k6
 
       - name: Install web app dependencies
-        working-directory: ./apps/web
+        working-directory: ./gara_reconstruction_v5
         run: npm ci
 
       - name: Build web app
-        working-directory: ./apps/web
+        working-directory: ./gara_reconstruction_v5
         run: npm run build
 
       - name: Start web app (background)
-        working-directory: ./apps/web
+        working-directory: ./gara_reconstruction_v5
         run: |
           npm run start &
           sleep 10  # Wait for server to be ready

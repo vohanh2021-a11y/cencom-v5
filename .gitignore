@@ -86,3 +86,20 @@ backups/
 
 # Windows
 *.lnk
+
+# v4 monorepo remnants (baseline = gara_reconstruction_v5/)
+# Patterns anchored at root (leading /) so they do NOT match same-named dirs inside v5
+/apps/
+/packages/
+/supabase/
+/gara_reconstruction/
+/screenshots/
+/test-video-scenario/
+/test-video-scenarios/
+/UAT/
+/videos/
+/exports/
+/cookies.txt
+/serve.pid
+/standalone-build.*
+/temp_check.*

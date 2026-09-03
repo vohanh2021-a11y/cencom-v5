@@ -9,6 +9,8 @@ export const RPC_SCHEMAS: Record<string, z.ZodRawShape> = {
   scCreate: {
     xe_id: z.string(),
     ngay: z.string(),
+    // GĐ6: ghi chú thăm khám (optional, trần 2000 khớp core slice + cột TEXT).
+    ghi_chu_tham_kham: z.string().max(2000).optional(),
   },
   scAddCongViec: {
     sc_id: z.string(),

@@ -1,5 +1,0 @@
-intro|Chào bạn, video này hướng dẫn kiểm tra phân quyền truy cap trong hệ thống CencomOS
-step1|Buoc nut kiem tra quyen truy cap
-step2|Buoc hien thi ket qua quyen hop le
-step3|Buoc ket thuc kiem tra phan quyen
-hoan|Hoan tat, he thong da xac thinh tai khoan co quyen truy cap day du

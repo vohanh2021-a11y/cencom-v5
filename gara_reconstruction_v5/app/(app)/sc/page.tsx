@@ -39,6 +39,8 @@ interface ScDetail {
   tong_cong?: number | null;
   tong_vt?: number | null;
   tong?: number | null;
+  /** GĐ6: ghi chú thăm khám (core SELECT * từ cột sc.ghi_chu_tham_kham). */
+  ghi_chu_tham_kham?: string | null;
 }
 
 interface ActivityRow {
@@ -624,6 +626,11 @@ function ScDetailModal({
                   <span className="text-slate-500">Tổng cộng:</span>{' '}
                   {money(sc.tong ?? sc.tong_cong ?? sc.tong_vt)}
                 </div>
+                {sc.ghi_chu_tham_kham && (
+                  <div className="col-span-2 mt-2 rounded bg-slate-50 p-2 text-sm dark:bg-slate-700">
+                    <span className="font-medium">Ghi chú thăm khám:</span> {sc.ghi_chu_tham_kham}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-sm text-slate-400">Chưa có chi tiết.</div>
@@ -1257,6 +1264,8 @@ export default function ScPage({ initialId = null }: { initialId?: string | null
 
   const [xeSelected, setXeSelected] = useState('');
   const [ngay, setNgay] = useState(todayStr);
+  // GĐ6: ghi chú thăm khám (tuỳ chọn) cho phiếu tạo mới — trần 2000 (khớp zod/core).
+  const [ghiChuThamKham, setGhiChuThamKham] = useState('');
 
   const loadXe = useCallback(async () => {
     const r = await api.call('xeList');
@@ -1307,10 +1316,11 @@ export default function ScPage({ initialId = null }: { initialId?: string | null
     if (!xeSelected || !ngay) return;
     setCreating(true);
     setErr(null);
-    const r = await api.call('scCreate', { xe_id: xeSelected, ngay });
+    const r = await api.call('scCreate', { xe_id: xeSelected, ngay, ghi_chu_tham_kham: ghiChuThamKham });
     if (r.ok) {
       setXeSelected('');
       setNgay(todayStr);
+      setGhiChuThamKham('');
       refreshSc();
     } else {
       setErr(r.error || 'Tạo phiếu sửa chữa thất bại');
@@ -1463,7 +1473,17 @@ export default function ScPage({ initialId = null }: { initialId?: string | null
                 disabled={creating}
               />
             </div>
-            <div className="md:col-span-2" />
+            <div className="md:col-span-2">
+              <textarea
+                className="w-full rounded border bg-white px-3 py-2 text-sm dark:bg-slate-800"
+                rows={2}
+                placeholder="Ghi chú thăm khám (nếu có)..."
+                value={ghiChuThamKham}
+                onChange={(e) => setGhiChuThamKham(e.target.value)}
+                maxLength={2000}
+                disabled={creating}
+              />
+            </div>
             <div className="md:col-start-4">
               <button
                 type="button"

@@ -1,5 +1,0 @@
-intro|Chao ban, day la kich ban huong dan dang nhap he thong CencomOS
-step1|Buoc mot, nhap tai khoan vao o tai khoan
-step2|Buoc hai, nhap mat khau vao o mat khau
-step3|Buoc ba, bam nut dang nhap de truy cap he thong
-hoan|Hoan tat, ban da dang nhap thanh cong vao he thong CencomOS

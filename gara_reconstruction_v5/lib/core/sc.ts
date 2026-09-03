@@ -129,19 +129,27 @@ export async function scGet(api: Api, id: string): Promise<any> {
   return r;
 }
 
-export async function scCreate(api: Api, p: { xe_id: string; ngay: string }): Promise<{ id: string }> {
+export async function scCreate(
+  api: Api,
+  p: { xe_id: string; ngay: string; ghi_chu_tham_kham?: string }
+): Promise<{ id: string }> {
   const u = api.auth.current();
   const role = u?.role;
   if (!(await api.perm.can(api.db, role!, 'sc', 'tao'))) throw new Error('403');
   const xeId = requireStr(p?.xe_id, 'xe_id');
   const ngay = requireStr(p?.ngay, 'ngay');
+  // GĐ6 ghi_chu_tham_kham (optional): optionalStr chặn object/array (type-confusion);
+  // trần 2000 ký khớp zod (lib/contracts.ts) + cột TEXT — cắt cứng phía server để
+  // không tin client (khác đường MCP/HTTP thẳng không qua zod). '' khi không có.
+  optionalStr(p?.ghi_chu_tham_kham, 'ghi_chu_tham_kham');
+  const ghiChu = String(p?.ghi_chu_tham_kham ?? '').slice(0, 2000);
   const xe = await row('SELECT id FROM xe WHERE id=$1 AND deleted_at=$2', [xeId, '']);
   if (!xe) throw new Error('Không tìm thấy xe');
   const isTest = role === 'admin' ? 1 : 0;
   const id = await nextId('SC');
   await run(
-    'INSERT INTO sc (id, xe_id, ngay_tao, nguoi_tao, trang_thai, is_test, deleted_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-    [id, xeId, ngay, u?.id, 'de_xuat', isTest, '']
+    'INSERT INTO sc (id, xe_id, ngay_tao, nguoi_tao, trang_thai, is_test, ghi_chu_tham_kham, deleted_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+    [id, xeId, ngay, u?.id, 'de_xuat', isTest, ghiChu, '']
   );
   // W0.2: khởi tạo tong_* = 0 từ dòng (đảm bảo 3 cột luôn là số, không NULL, cùng trạng thái với dòng con)
   await recalcScTotals(id);

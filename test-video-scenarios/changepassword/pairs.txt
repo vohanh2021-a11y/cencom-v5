@@ -1,5 +1,0 @@
-intro|Chào bạn, video này hướng dẫn thay đổi mật khẩu trong hệ thống CencomOS
-step1|Buoc nhap mat khau hien tai
-step2|Buoc nhap mat khau moi it nhat 6 ky tu
-step3|Buoc nhap lai mat khau moi de xac nhan
-hoan|Hoan tat, mat khau da duoc cap nhat thanh cong vao he thong CencomOS

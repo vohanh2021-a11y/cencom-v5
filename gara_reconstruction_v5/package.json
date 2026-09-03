@@ -28,6 +28,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.20",
+    "exceljs": "^4.4.0",
     "next": "^14.2.35",
     "pg": "8",
     "postcss": "^8.4.47",

@@ -87,6 +87,9 @@ ALTER TABLE sc ADD CONSTRAINT sc_trang_thai_check
   CHECK (trang_thai IN ('de_xuat','da_duyet','dang_sua','da_hoan','da_quyet','tu_choi'));
 ALTER TABLE sc ADD COLUMN IF NOT EXISTS nguoi_duyet TEXT DEFAULT '';
 ALTER TABLE sc ADD COLUMN IF NOT EXISTS ngay_duyet  TEXT DEFAULT '';
+-- GĐ6 (worker-e): ghi chú thăm khám đơn giản trên phiếu SC — 4 tầng DB→core→zod→UI.
+-- TEXT DEFAULT '' theo quy ước soft-not-null v5 (đồng nhất nguoi_duyet/ngay_duyet).
+ALTER TABLE sc ADD COLUMN IF NOT EXISTS ghi_chu_tham_kham TEXT DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS sc_phien_ban (
   id          BIGSERIAL PRIMARY KEY,
@@ -365,3 +368,33 @@ CREATE TABLE bao_gia_ncc (
   deleted_at   TEXT DEFAULT ''
 );
 CREATE INDEX idx_bgn_sc ON bao_gia_ncc(sc_id);
+
+-- ============ PERFORMANCE INDEXES (GĐ6 — worker-e) ============
+-- Phục vụ truy vấn nóng danh sách/dashboard (core/xuong.ts dashboardAll, scList).
+-- LƯU Ý GATEKEEPER — spec thô tham chiếu vài cột/kiểu KHÔNG khớp schema v5; các
+-- CREATE dưới đây đã HIỆU CHỈNH đúng kiểu/cột THẬT để `db/migrate.ts` (chỉ chạy
+-- schema.sql bằng simple-query MỘT lần — lỗi 1 statement = fail cả migrate) không
+-- vỡ P0. Cụ thể đã xử lý:
+--   • sc.trang_thai là VARCHAR enum ('de_xuat'..'tu_choi') → KHÔNG dùng 'IN (1..5)'
+--     (sai kiểu: "operator does not exist: character varying = integer"). Dashboard
+--     lọc TOÀN BỘ 6 trạng thái sống nên predicate chỉ cần deleted_at/is_test.
+--   • sc.dong_not KHÔNG tồn tại ở v5 → BỎ idx_sc_dong_trang (muốn có phải ADD COLUMN
+--     ở tầng nghiệp vụ trước — NGOÀI phạm vi task này).
+--   • ho_so.buoc KHÔNG tồn tại (đã có idx_hoso_sc(sc_id)) → BỎ idx_hoso_sc_step.
+--   • bảng ledger nằm ở db/accounting.sql, KHÔNG được migrate.ts chạy (áp TÁCH/SAU)
+--     → đặt 'ON ledger' thẳng vào schema.sql sẽ fail khi ledger chưa tồn tại. Bọc
+--     DO $$ guard theo to_regclass: DB fresh (chưa có ledger) → no-op an toàn; DB
+--     live đã áp accounting.sql → index vẫn tạo được. (Vị trí CHÍNH XÁC nhất vẫn là
+--     accounting.sql cạnh idx_ledger_* sẵn có — worker-e không được sửa file đó theo
+--     task_boundaries, ĐÃ báo coordinator.)
+CREATE INDEX IF NOT EXISTS idx_sc_ngay ON sc(ngay_tao DESC) WHERE deleted_at = '';
+CREATE INDEX IF NOT EXISTS idx_sc_ngay_trang ON sc(ngay_tao DESC, trang_thai) WHERE deleted_at = '';
+CREATE INDEX IF NOT EXISTS idx_xuong_dash ON sc(ngay_tao ASC, id ASC) WHERE deleted_at = '' AND is_test = 0;
+CREATE INDEX IF NOT EXISTS idx_kho_ton ON vattu(ton) WHERE deleted_at = '' AND is_test = 0;
+DO $$
+BEGIN
+  IF to_regclass('public.ledger') IS NOT NULL THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ledger_tk_ref ON ledger(tai_khoan, ref_id) WHERE tenant_id IS NOT NULL';
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ledger_comp ON ledger(tenant_id, ngay, tai_khoan)';
+  END IF;
+END $$;
