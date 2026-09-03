@@ -11,5 +11,14 @@ node_modules/
 /tests/ux/console-errors.txt
 /tests/ux/results.json
 
-# playwright storageState (session cookie — never commit)
+# playwright storageState (session cookie ï¿½ never commit)
 .playwright-auth-*.json
+
+# dev temp logs (generated, never commit)
+devserver.*
+conformance_*.err
+conformance_*.out
+w*.err
+w*.out
+exports/
+.env.mcp

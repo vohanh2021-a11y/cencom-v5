@@ -9,7 +9,7 @@ on:
 env:
   NODE_VERSION: "20"
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cencom
-  SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+  SESSION_SECRET: ${{ secrets.SESSION_SECRET || 'ci-test-secret-32-chars-min-please-use-this-key-for-ci' }}
 
 jobs:
   lint-and-typecheck:
@@ -63,7 +63,7 @@ jobs:
         working-directory: gara_reconstruction_v5
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET || 'ci-test-secret-32-chars-min-please-use-this-key-for-ci' }}
           NODE_ENV: test
 
   build:
