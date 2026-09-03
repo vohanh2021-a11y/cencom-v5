@@ -31,8 +31,8 @@ const COUNTERS = [
 ];
 
 export async function seed(): Promise<{ xe: number; users: UserSeed[]; counters: string[] }> {
-  // 1) Nạp danh sách xe mẫu (seed_xe.json nằm ngoài thư mục dự án v5)
-  const jsonPath = resolve(__dirname, '../../packages/db/seed/seed_xe.json');
+  // 1) Nạp danh sách xe mẫu
+  const jsonPath = resolve(__dirname, 'seed_xe.json');
   const xeList = JSON.parse(readFileSync(jsonPath, 'utf8')) as XeSeed[];
 
   let xeCount = 0;
