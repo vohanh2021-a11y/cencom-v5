@@ -58,21 +58,28 @@ function findStep(steps: any[], step: number) {
 /* ─── Cleanup ─────────────────────────────────────────── */
 
 afterAll(async () => {
-  // Xoa du lieu test (is_test=1) — thu tu dung FK
-  // activity_log co the co dong is_test=0 (logActivity khong luon truyen is_test)
-  // nen xoa theo sc_id lien ket truoc
-  await db.query(
-    'DELETE FROM activity_log WHERE sc_id IN (SELECT id FROM sc WHERE is_test = 1)'
-  );
-  await db.query('DELETE FROM bao_gia_ncc WHERE is_test = 1');
-  await db.query(
-    "DELETE FROM baogia_chitiet WHERE baogia_id IN (SELECT id FROM baogia WHERE is_test = 1)"
-  );
-  await db.query('DELETE FROM baogia WHERE is_test = 1');
-  await db.query('DELETE FROM bien_ban_nghiem WHERE is_test = 1');
-  await db.query('DELETE FROM phieu_kiem_tu WHERE is_test = 1');
-  await db.query('DELETE FROM ke_hoach_sc WHERE is_test = 1');
-  await db.query('DELETE FROM ho_so WHERE is_test = 1');
+  // Xoa du lieu test (is_test=1) — thu tu dong FK: con truoc cha
+  // QUAN TRONG: xoa tat ca hang con lien quan den SC is_test=1, du chung co is_test hay khong
+  const scTestIds = '(SELECT id FROM sc WHERE is_test = 1)';
+  // Tier 0: bang khong co con (hoac con da xoa)
+  await db.query(`DELETE FROM activity_log WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM bao_gia_ncc WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM baogia_chitiet WHERE baogia_id IN (SELECT id FROM baogia WHERE sc_id IN ${scTestIds})`);
+  await db.query(`DELETE FROM baogia WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM bien_ban_nghiem WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM phieu_kiem_tu WHERE sc_id IN ${scTestIds}`);
+  // Tier 1: bang con cua sc
+  await db.query(`DELETE FROM sc_congviec WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM sc_vattu WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM sc_phien_ban WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM nhap_xuat WHERE sc_id IN ${scTestIds}`);
+  // Tier 1: bang con cua dm (dm_chitiet FK -> dm)
+  await db.query(`DELETE FROM dm_chitiet WHERE dm_id IN (SELECT id FROM dm WHERE sc_id IN ${scTestIds})`);
+  await db.query(`DELETE FROM dm WHERE sc_id IN ${scTestIds}`);
+  // Tier 1: cac bang khac con sc
+  await db.query(`DELETE FROM ke_hoach_sc WHERE sc_id IN ${scTestIds}`);
+  await db.query(`DELETE FROM ho_so WHERE sc_id IN ${scTestIds}`);
+  // Tier 2: cha cuoi cung
   await db.query('DELETE FROM sc WHERE is_test = 1');
   console.log('✅ Cleanup: du lieu test da xoa');
 });

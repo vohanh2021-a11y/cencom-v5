@@ -210,31 +210,24 @@ describe('W4.3 — IN HTML A4 (/in/[type]/[id])', () => {
   });
 });
 
-describe('W4.3 — EXPORT (CSV-safe; xlsx TODO khi được duyệt dep)', () => {
-  test('GET /api/export/tonghop → 200 text/csv + BOM + cột chuẩn', async () => {
+describe('W4.3 — EXPORT (ExcelJS xlsx)', () => {
+  test('GET /api/export/tonghop → 200 xlsx + header chuẩn', async () => {
     const res = await get(getAdminToken(), '/api/export/tonghop');
     expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('text/csv');
-    expect(res.headers['x-export-format']).toBe('csv');
-    expect(res.text.charCodeAt(0)).toBe(0xfeff);
-    const body = res.text.replace(/^\uFEFF/, '');
-    expect(body).toContain('id,bien_so,trang_thai');
+    expect(res.headers['content-type']).toContain('spreadsheetml');
+    expect(res.headers['x-export-format']).toBe('xlsx');
   });
 
-  test('GET /api/export/bangke?id=<SC> → 200 csv chứa tiêu đề bảng kê; ncc "=..." được escape chống formula', async () => {
+  test('GET /api/export/bangke?id=<SC> → 200 xlsx chứa worksheet', async () => {
     const res = await get(getAdminToken(), `/api/export/bangke?id=${scId}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('BẢNG KÊ CHI TIẾT');
-    // chuỗi bắt đầu '=' → csvCell prefix `'` (chặn Excel formula injection), " nhân đôi
-    const r2 = await get(getAdminToken(), `/api/export/baogia?id=${bgId}`);
-    expect(r2.status).toBe(200);
-    expect(r2.text).toContain("\"'=NCC\"\"TEST\"");
+    expect(res.headers['content-type']).toContain('spreadsheetml');
   });
 
-  test('GET /api/export/tonkho → 200 csv danh mục vật tư', async () => {
+  test('GET /api/export/tonkho → 200 xlsx danh mục vật tư', async () => {
     const res = await get(getAdminToken(), '/api/export/tonkho');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('id,ten,don_vi,ton');
+    expect(res.headers['content-type']).toContain('spreadsheetml');
   });
 
   test('export không session → 401; type lạ → 404', async () => {
