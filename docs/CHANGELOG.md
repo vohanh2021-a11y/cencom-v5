@@ -57,6 +57,45 @@
 
 E2E Playwright: kho 4/4 · dm 4/4 · kanban 4/4 · sc 1/1 — 13/13.
 
+## 2026-09-03 — v5.2.0+ (W6-reg, Electron, PWA, CI/CD, Memory)
+
+> Vượt plan hội tụ: port GĐ4 modules + Electron desktop + PWA fixes + memory engine.
+
+### W6-reg — Port GĐ4 modules (`7024f66`)
+- **Ketoan end-to-end**: 8 fn (`tinhGiaVon/reconcileKho/vatInvoiceSave/phieuChiCreate/congNoList/ledgerReport/kyClose/kyOpen`) + ledger 2 fn (`ledgerPost/ledgerList`) + 5 trang UI (`ke-toan/dashboard/nhap-vat/cong-no/khoa-ky/bao-cao`)
+- **KhachHang**: 4 fn (`khachHangList/Get/Save/Del`) + UI `/khach-hang`
+- **BaoDuong**: 2 fn (`baoDuongTao/baoDuongList`)
+- **Mailer**: `mailerList/mailerInit`
+- **RBAC**: 450+ tests (từ 329)
+- **Tổng FN**: 85 (từ 69) | **MCP tools**: 55 (từ 39)
+
+### Electron Desktop (`ab9fcfa`)
+- `electron/main.js`: single-instance, BrowserWindow 1280×800, retry-wait, spawn Next standalone
+- `electron/preload.js`: contextIsolation, expose window.versions
+- NSIS installer: `CencomOS Gara Setup 5.2.0.exe` (84MB)
+- Security: nodeIntegration=false, sandbox=true, webSecurity=true
+
+### PWA Fixes (`6d46e64`, `e3bb59d`, `333a6fb`)
+- Icons 192×192 (4640B) + 512×512 (13861B) thay thế 1×1
+- favicon.png added
+- manifest.json icons array populated
+- .gitignore thêm devserver.* logs
+
+### CI/CD (`333a6fb`)
+- ci-cd.yml → ci-cd-legacy.yml (deprecated,保留 reference)
+- deploy.yml: fix `${{ secrets.HOST }}` + `${{ github.ref_name }}` + xóa deploy-vercel
+- uat-video.yml: fix `needs` + health-cmd + working-directory
+
+### On-premise v5
+- docker-compose.yml: PostgreSQL thuần + Next.js standalone + MCP + Nginx
+- nginx.conf: upstream → `web:3000` + `mcp:3001`
+- init_db.sh: migrate v5 (`tsx db/migrate.ts`)
+- .env.example: đầy đủ (DATABASE_URL, SESSION_SECRET, MCP vars)
+
+### Memory Engine (`docs/memory/`)
+- 00-INDEX.md, MEMORY.md, CONTEXT.md, patterns.md, risks.md, project-config.md
+- Vi phạm Chuẩn 9 đã được sửa
+
 ## 2026-08-15 — Ghi nhận checklist đối chiếu UI từ v3.6 (v3.6.3)
 
 - Tạo `docs/UI_DOI_CHIEU_TU_V3.md` — danh sách BẮT BUỘC đối chiếu khi port giao diện sang Next.js/Tailwind:

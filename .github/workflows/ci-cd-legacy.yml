@@ -1,10 +1,13 @@
-﻿name: CI/CD Pipeline
+﻿# DEPRECATED: Use ci.yml instead. This workflow is kept for reference only.
+name: CI/CD Pipeline
 
+# Trigger đã trỏ sang branch không tồn tại để workflow KHÔNG chạy trên push/PR
+# (mục tiêu "lưu trữ, không chạy" — file được giữ nguyên để tham khảo).
 on:
   push:
-    branches: [main]
+    branches: ['disabled-legacy-workflow']
   pull_request:
-    branches: [main]
+    branches: ['disabled-legacy-workflow']
 
 env:
   NODE_VERSION: "20"

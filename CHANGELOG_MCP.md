@@ -31,8 +31,14 @@ Trạng thái: pending | in_progress | done | blocked.
 - [x] **W2 DM (01.09) ✅** — dmList/Detail/ListBySc/Delete · dmDecide ngưỡng 5.000.000đ (canApproveMua nguyên bản v3.6: admin/giamdoc vô hạn, ketoan ≤ ngưỡng) · dmFromSC gom `can_mua` chặn DM mở trùng · dmAutoBu (ton<ton_min) · dmNhap gate da_duyet · UI /kho/dm + e2e 4/4 · **MCP: resource `dm://{dm_id}` + prompt `quy-trinh-mua-sam` + tool-docs part5**. Gate 572/572 (batch W2+W3). Commit `a262dad`.
 - [x] **W3 XƯỞNG (01–02.09) ✅** — Kanban 5 cột 1-xe-1-thẻ (`dashboardAll` port v3.6) + KPI 11 + cache 60s/vai (`lib/cache.ts` single-flight) · thoList/myTasks · 6 fn sửa/xoá dòng CV/VT + scSetDeadline (53/53, gate trạng thái) · **scTongDuyet + bảng `sc_phien_ban`** snapshot bất biến (chốt trong batch W4) · UI kanban/dashboard + e2e 4/4 + sc 1/1 · **MCP: resource `xuong://dashboard` + prompt `quy-trinh-xuong` + tool-docs part6**. Commits `a262dad` → `9e26015`.
 - [x] **W4 CROSS+AI (02.09) ✅** — admin 7fn + enforce `must_change` (41 test) · GlobalSearch ILIKE-escape + CommandPalette (11 test) · /in A4 8 mẫu + export CSV an toàn (12 test, KHÔNG .docx) · workspace 4 trục + ReadOnlyGuard PA1 + 3 theme · PWA manifest/sw · NotificationCenter SSE 5 kênh · **boss:// — `bossDashboard/bossAlerts` (`lib/core/boss.ts`, META `['sc','xem']`, +2 tools registry-động, 9 rbac fix → 329/329)** · tool-docs part7 (admin+search+thresholds). **Gates: tsc=0, full conformance 714/714 (27 suites) GREEN.** Commit `9e26015`.
-- [ ] **W5 RELEASE (in_progress 02.09)**: bump **5.2.0** OK + docs (MASTER_PLAN/CHANGELOG/CHANGELOG_MCP) cập nhật; còn lại: tag `v5.2.0` + push (CẦN user cấp remote URL).
-- [ ] (Q1 mở) TK thăm khám W3.9: chờ duyệt. (Q2 mở) 211 draft GĐ4/5: chưa commit — chờ duyệt.
+- [x] **W5 RELEASE (02–03.09) ✅**: bump **5.2.0** + docs + tag `v5.2.0` trên GitHub + push `main` + CI xanh trên `ab9fcfa`.
+- [x] **W6-reg — Port GĐ4 modules (03.09) ✅**: ketoan 8fn + ledger 2fn + khachhang 4fn + baoduong 2fn + mailer → tổng FN **85**, MCP tools **55**, RBAC 450+. Commit `7024f66`.
+- [x] **Electron Desktop (03.09) ✅**: wrapper + NSIS 84MB. Commit `ab9fcfa`.
+- [x] **PWA Fixes (03.09) ✅**: icons 192/512 chuẩn, CI/CD fallback secret. Commits `6d46e64`→`e3bb59d`.
+- [x] **CI/CD Fix (03.09) ✅**: ci-cd→legacy, deploy.yml fix, uat-video.yml fix.
+- [x] **On-premise v5 (03.09) ✅**: docker-compose PostgreSQL thuần, nginx upstream fix, init_db.sh v5, .env.example đầy đủ.
+- [x] **Memory Engine (03.09) ✅**: docs/memory/ 6 files (Chuẩn 9).
+- [ ] (Q1 mở) TK thăm khám W3.9: chờ duyệt. Mặc định KHÔNG.
 
 - MCP v1 hoàn chỉnh: **32 tool** trùng tên fn + **2 resource** (sc, xe) + **1 prompt** QC206 + **HTTP LAN** (Bearer, session) — Web↔Core↔MCP đồng nhất tên/version.
 - Conformance toàn hệ thống: **324/324 GREEN**. tsc=0. version-consistency OK.

@@ -1,4 +1,4 @@
-# MASTER PLAN — cencomOS gara v5.0 (cập nhật 2026-09-02 — release v5.2.0)
+# MASTER PLAN — cencomOS gara v5.0 (cập nhật 2026-09-03 — v5.2.0+)
 
 > Bản chi tiết: `gara_reconstruction_v5/docs/PLAN_14.08_supa.md`; kiến trúc: `docs/Architect.md`;
 > kế hoạch GĐ2/GĐ3 chi tiết: `gara_reconstruction_v5/docs/PLAN_HOAN_THIEN_G2_G3.md`, `gara_reconstruction_v5/docs/PLAN_GIAIDOAN_3.md`;
@@ -10,10 +10,10 @@
 
 ## 0. Tóm tắt GPS (đọc nhanh)
 
-- **Vị trí hiện tại (02.09):** ✅ `GĐ1–GĐ5 xong` + `GĐ8 DONE` (714/714 conformance) — hội tụ v5.2.0 (`PLAN_HOI_TU_01.09` W0–W4, commits `aaf11c9`→`9e26015`); W5 release đang chạy docs/bump; 🛑 `GĐ6/GĐ9/GĐ10 chưa xong`.
-- **App v5 đã dùng được:** build xanh, UAT 20/20, conformance 714/714 (27 suites), MCP 32+2+1+HTTP mở rộng động, PWA + workspace 4 trục + in A4.
+- **Vị trí hiện tại (03.09):** ✅ `GĐ1–GĐ5 + GĐ8 DONE` (714/714 conformance) + **W6-reg port GĐ4** (ketoan/khachhang/baoduong/ledger, commit `7024f66`) + **Electron desktop** (NSIS 84MB, `ab9fcfa`) + **PWA fixes** + **CI/CD fixes** + **Memory engine**. 🛑 `GĐ6/GĐ9/GĐ10 chưa xong`.
+- **App v5 đã dùng được:** build xanh, UAT 20/20, conformance 714/714 (27 suites), MCP **55 tools** + 4 resources + 3 prompts + HTTP, PWA + workspace 4 trục + in A4 + Electron desktop.
 - **Chiến lược deploy:** LAN (on-premise) trước → xuất về hệ thống công ty sau. **KHÔNG Vercel.**
-- **Vấn đề còn lại:** gộp 2 codebase, rồi mới chạy full conformance + E2E + deploy LAN.
+- **Vấn đề còn lại:** On-premise test deploy, GĐ6 (perf), GĐ10 (multi-tenant).
 
 ---
 
@@ -68,12 +68,17 @@ v5 là **monorepo NPM workspaces** (root `package.json` có `"workspaces": ["pac
 
 ---
 
-## 4. Trạng thái hiện tại (GPS 2026-09-02 — v5.2.0)
+## 4. Trạng thái hiện tại (GPS 2026-09-03 — v5.2.0+)
 
-- **Phiên bản hiện hành: v5.2.0** (`package.json 5.2.0`; chuỗi commit `aaf11c9`→`da3091e`→`a262dad`→`9e26015`, 01–02.09). Tag `v5.2.0` chờ remote git (W5.4–W5.5).
-- **Đã commit & verify (GĐ1–3):** `3a84af4` — baseline `gara_reconstruction_v5/` (build xanh, UAT 20/20, conformance 236/236, Docker + CI/CD + monitoring + rollback).
-- **Hội tụ v5.2.0 (W0–W4) DONE:** race-condition kho + `recalcScTotals` (W0) · trục KHO 2 tầng/tonKho/cu_hong/GTTV (W1) · trục DM duyệt ngưỡng + UI `/kho/dm` (W2) · trục XƯỞNG kanban/KPI 11/sửa dòng/`scTongDuyet`+`sc_phien_ban` (W3) · cross-cutting admin+must_change/GlobalSearch/`/in/*` A4/workspace PA1+3 theme/PWA/NotificationCenter/boss-dashboard (W4). **Conformance 714/714 (27 suites), tsc=0, rbac 329/329, e2e 13/13.** MCP động theo registry (v5.1.0: 32+2+1+HTTP → hiện ~69 fn; resources `sc/xe/dm/kho-taisan/xuong-dashboard`, prompts QC206/mua-sam/xuong).
-- **Chưa làm / còn treo:** GĐ6 (perf tune MV/pagination sâu), GĐ9 (deploy LAN production + hardening runbook), GĐ10 (multi-tenant RLS + thương mại hoá + tag lịch sử). **Push Git remote (việc của user — chưa có remote).**
+- **Phiên bản hiện hành: v5.2.0** (`package.json 5.2.0`; tag `v5.2.0` trên GitHub `vohanh2021-a11y/cencom-v5`).
+- **Hội tụ v5.2.0 (W0–W4) DONE:** race-condition kho + `recalcScTotals` (W0) · trục KHO 2 tầng/tonKho/cu_hong/GTTV (W1) · trục DM duyệt ngưỡng + UI `/kho/dm` (W2) · trục XƯỞNG kanban/KPI 11/sửa dòng/`scTongDuyet`+`sc_phien_ban` (W3) · cross-cutting admin+must_change/GlobalSearch/`/in/*` A4/workspace PA1+3 theme/PWA/NotificationCenter/boss-dashboard (W4). **Conformance 714/714 (27 suites), tsc=0, rbac 329/329, e2e 13/13.**
+- **W6-reg (03.09) DONE:** Port GĐ4 modules vào v5 — ketoan 8fn + ledger 2fn + khachhang 4fn + baoduong 2fn + mailer → **85 FN, 55 MCP tools, RBAC 450+**. Commit `7024f66`.
+- **Electron Desktop (03.09) DONE:** `electron/main.js` + `preload.js` + NSIS installer 84MB. Commit `ab9fcfa`.
+- **PWA Fixes (03.09) DONE:** Icons 192/512 chuẩn, CI/CD fallback secret. Commits `6d46e64`→`e3bb59d`.
+- **CI/CD Fixes (03.09) DONE:** ci-cd→legacy, deploy.yml fix, uat-video.yml fix.
+- **On-premise v5 (03.09) DONE:** docker-compose PostgreSQL thuần, nginx upstream fix, init_db.sh v5, .env.example đầy đủ.
+- **Memory Engine (03.09) DONE:** `docs/memory/` 6 files (Chuẩn 9).
+- **Chưa làm / còn treo:** GĐ6 (perf tune MV/pagination sâu), GĐ9 (deploy LAN production + hardening runbook), GĐ10 (multi-tenant RLS + thương mại hoá).
 
 
 ---
