@@ -1,0 +1,24 @@
+{
+  "name": "opencode-telegram-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hermes - Telegram gateway for opencode (headless serve). Auto-switches free-tier models across zen + b.ai on failure.",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "^1.18.18",
+    "dotenv": "^16.6.1",
+    "grammy": "^1.30.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

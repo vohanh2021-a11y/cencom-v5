@@ -82,3 +82,25 @@ cd apps/web && npm run dev
 # Build + Deploy (on-premise)
 cd Onpremise && bash scripts/deploy_local.sh
 ```
+
+## 📹 UX Demo Video & Audit
+
+Video demo vận hành xuyên suốt (login → home → dashboard → SC → Kho → Chat → Asset → Báo giá → Đề xuất → Phân quyền → Thanh lý → Dark mode → Mobile):
+
+- **`videos/cencom-ux-tour-2026-08-15.webm`** (54s, 2.3MB) — bản gốc
+- **`videos/cencom-ux-tour-2026-08-15.mp4`** (0.9MB) — bản compat
+- **`videos/frames/*.png`** — 14 frames để review nhanh
+
+Quy trình audit (skill `ux-video-audit`): quay bằng Playwright `recordVideo`, sau đó đánh giá tự động DOM/console/RPC.
+
+Scripts liên quan:
+```bash
+node scripts/seed-demo-data.mjs   # sinh dữ liệu demo (idempotent)
+node scripts/record-ux.mjs        # quay video full-tour
+pwsh scripts/run-ux-audit.ps1     # orchestration (postgres + dev + record)
+node scripts/eval-ux.mjs          # kiểm tra overflow/console/dark/mobile
+node scripts/rpc-all.mjs          # audit 95 RPC handlers (tìm handler thiếu)
+node scripts/verify-ui.mjs        # xác minh dark mode + mobile drawer
+```
+
+> ⚠️ Video ghi nhận app SAU KHI fix critical RPC dispatch (data load được). Chi tiết fix xem `CHANGELOG.md` mục **2026-08-16 — UX VIDEO AUDIT + CRITICAL RPC DISPATCH FIX**.

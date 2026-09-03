@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hướng dẫn sử dụng cencomOS gara 4.0 — Dành cho Kế toán</title>
+<style>
+  :root{
+    --green:#0f5132; --green2:#198754; --amber:#b8860b; --red:#b02a37;
+    --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f7f8fa; --card:#fff;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Times New Roman",-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    color:var(--ink); background:var(--bg); margin:0; line-height:1.6; font-size:15px}
+  .wrap{max-width:900px; margin:0 auto; padding:32px 28px 80px; background:var(--card)}
+  h1,h2,h3,h4{color:var(--green); line-height:1.3}
+  h1{font-size:26px; margin:0 0 4px}
+  h2{font-size:21px; margin:34px 0 10px; border-bottom:3px solid var(--green2); padding-bottom:6px}
+  h3{font-size:17px; margin:22px 0 8px; color:var(--green2)}
+  h4{font-size:15px; margin:16px 0 6px}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0 8px 22px; padding:0}
+  li{margin:4px 0}
+  .sub{color:var(--muted); font-size:14px}
+  .cover{border:1px solid var(--line); border-radius:14px; padding:28px 30px; background:linear-gradient(135deg,#0f5132,#157347); color:#fff; margin-bottom:8px}
+  .cover h1{color:#fff}
+  .cover .sub{color:rgba(255,255,255,.85)}
+  .tag{display:inline-block; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3);
+    padding:3px 10px; border-radius:999px; font-size:12px; margin:3px 4px 0 0}
+  .note{border-left:4px solid var(--amber); background:#fffbe6; padding:10px 14px; border-radius:8px; margin:12px 0}
+  .good{border-left:4px solid var(--green2); background:#ecfdf3; padding:10px 14px; border-radius:8px; margin:12px 0}
+  .bad{border-left:4px solid var(--red); background:#fdecea; padding:10px 14px; border-radius:8px; margin:12px 0}
+  .step{border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:18px 0; background:#fff}
+  .step .num{display:inline-block; width:30px; height:30px; line-height:30px; text-align:center;
+    background:var(--green2); color:#fff; border-radius:50%; font-weight:bold; margin-right:8px}
+  .step h3{display:inline; color:var(--ink)}
+  figure{margin:14px 0; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff}
+  figure img{width:100%; display:block; border-bottom:1px solid var(--line)}
+  figcaption{font-size:13px; color:var(--muted); padding:8px 12px; background:#fafafa}
+  table{border-collapse:collapse; width:100%; margin:12px 0; font-size:14px}
+  th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+  th{background:#eef6f0}
+  .toc{background:#f0f7f3; border:1px solid var(--line); border-radius:10px; padding:14px 20px; margin:18px 0}
+  .toc a{color:var(--green); text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .kpi{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0}
+  .kpi .box{flex:1; min-width:150px; border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:#fff}
+  .kpi .box b{display:block; font-size:22px; color:var(--green)}
+  .prod{border:2px solid var(--amber); border-radius:12px; padding:16px 20px; margin:30px 0; background:#fffdf5}
+  .prod h2{border:none; color:var(--amber); margin-top:0}
+  code{background:#eef2f6; padding:1px 5px; border-radius:4px; font-size:13px}
+  .small{font-size:13px; color:var(--muted)}
+  @media print{
+    body{background:#fff; font-size:12px}
+    .wrap{max-width:none; padding:0 8mm}
+    .cover{background:#0f5132 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+    .step,.note,.good,.bad,figure,table,th,td{border-color:#999}
+    h2{page-break-after:avoid} .step{page-break-inside:avoid} figure{page-break-inside:avoid}
+    a{color:var(--ink); text-decoration:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ COVER ============ -->
+  <div class="cover">
+    <h1>HƯỚNG DẪN SỬ DỤNG PHẦN MỀM cencomOS gara 4.0</h1>
+    <div class="sub">Dành cho bộ phận Kế toán — Từ đánh giá tổng quát đến thao tác từng bước</div>
+    <div style="margin-top:12px">
+      <span class="tag">Bản cloud (web)</span>
+      <span class="tag">Quyền: Kế toán</span>
+      <span class="tag">Kèm ảnh minh hoạ</span>
+      <span class="tag">Ngày soạn: 17/08/2026</span>
+    </div>
+  </div>
+
+  <p class="sub">Tài liệu này gồm 3 phần: (1) Đánh giá tổng quát phần mềm, (2) Đánh giá chi tiết khi sử dụng,
+  và (3) Hướng dẫn kế toán thao tác từng bước có ảnh chụp màn hình thật. Phần (3) dùng ngôn ngữ bình thường,
+  không thuật ngữ kỹ thuật, để bạn chỉ cần làm theo từng bước.</p>
+
+  <div class="toc">
+    <b>MỤC LỤC</b>
+    <ol>
+      <li><a href="#p1">Đánh giá tổng quát phần mềm</a></li>
+      <li><a href="#p2">Đánh giá chi tiết trong quá trình sử dụng</a></li>
+      <li><a href="#p3">Hướng dẫn kế toán step-by-step (có ảnh)</a>
+        <ul>
+          <li>Bước 0–10: Đăng nhập, Trang chủ, Mua, Kho, Phiếu sửa chữa, Tài sản, Bộ hồ sơ 8 bước, Kiểm tu, Báo cáo, Xử lý sai sót, Chat</li>
+        </ul>
+      </li>
+      <li><a href="#app">Phụ lục: Quyền kế toán & thuật ngữ đơn giản</a></li>
+      <li><a href="#prod">⚠️ Lưu ý hệ thống sản xuất (Production Check)</a></li>
+    </ol>
+  </div>
+
+  <!-- ============ PART 1 ============ -->
+  <h2 id="p1">PHẦN 1 — ĐÁNH GIÁ TỔNG QUÁT PHẦN MỀM</h2>
+
+  <h3>1.1. Phần mềm là gì?</h3>
+  <p><b>cencomOS gara 4.0</b> là phần mềm quản lý gara xe đầu kéo chạy trên trình duyệt web (máy tính, máy tính bảng, điện thoại),
+  dùng để theo dõi toàn bộ quá trình từ lúc xe vào sửa, nhập vật tư, xuất kho, nghiệm thu, quyết toán, đến khi giao xe.
+  Đây là bản nâng cấp từ hệ thống cũ, viết lại hoàn toàn cho nhẹ, nhanh và cập nhật theo thời gian thực.</p>
+  <p class="small">Đối tượng dùng chung một phần mềm: Lái xe, Thợ, Thủ kho, Kế toán, Quản lý, Giám đốc, Xưởng, Quản trị viên.
+  Mỗi người chỉ thấy và làm được那些 việc thuộc quyền của mình.</p>
+
+  <h3>1.2. Các chức năng chính</h3>
+  <table>
+    <tr><th>Nhóm chức năng</th><th>Mục đích chính</th><th>Kế toán có dùng?</th></tr>
+    <tr><td>Tiếp nhận & Phiếu sửa chữa (SC)</td><td>Lập phiếu tiếp nhận xe, thêm công việc & vật tư, theo dõi tiến độ</td><td>Xem</td></tr>
+    <tr><td>Đề xuất / Đề nghị mua</td><td>Yêu cầu mua vật tư, duyệt mua, làm căn cứ nhập kho</td><td>Xem / Tạo / Duyệt</td></tr>
+    <tr><td>Kho vật tư</td><td>Quản lý tồn kho, phiếu nhập, phiếu xuất, đề nghị mua</td><td>Xem</td></tr>
+    <tr><td>Tài sản & Khấu hao</td><td>Xem báo cáo xe, lịch sử sửa chữa, quyết toán, tính khấu hao</td><td>Xem / Quyết toán</td></tr>
+    <tr><td>Mua & Công nợ NCC</td><td>Theo dõi nhà cung cấp, hóa đơn đầu vào, thanh toán, công nợ phải trả</td><td>Xem / Tạo / Duyệt</td></tr>
+    <tr><td>Báo giá NCC</td><td>Lưu báo giá của nhà cung cấp (nhập tay)</td><td>Xem / Tạo</td></tr>
+    <tr><td>Chat nội bộ</td><td>Nhắn tin, giao việc giữa các bộ phận</td><td>Xem / Tạo</td></tr>
+    <tr><td>Bảng điều khiển xưởng</td><td>Kanban theo dõi xe theo trạng thái (dành xưởng/giám đốc)</td><td>Không (bị khoá với kế toán)</td></tr>
+    <tr><td>Phân quyền</td><td>Quản trị viên cài đặt ai được làm gì</td><td>Không (chỉ quản trị viên)</td></tr>
+  </table>
+
+  <h3>1.3. Các nghiệp vụ công việc cốt lõi</h3>
+
+  <h4>a) Tạo phiếu (Tiếp nhận / Phiếu sửa chữa / Đề nghị mua)</h4>
+  <p>Khi có xe vào sửa, người tiếp nhận tạo <b>phiếu sửa chữa (gọi tắt là phiếu SC)</b>: chọn xe, ghi các công việc cần làm và vật tư cần dùng.
+  Kế toán không tạo phiếu SC (việc này do bộ phận tiếp nhận/thợ), nhưng có thể <b>tạo và duyệt đề nghị mua</b> vật tư khi cần mua hàng.</p>
+
+  <h4>b) Kiểm tu (Kiểm tra & chẩn đoán)</h4>
+  <p>Sau khi tiếp nhận, xe được kiểm tra để biết hư hỏng gì (bước "chẩn đoán"). Kết quả kiểm tra là căn cứ để báo giá và lập lệnh sửa.
+  Ở góc độ kế toán, kiểm tu giúp xác định chi phí dự kiến, nhưng <b>chưa sinh số tiền</b> cho đến khi có nhập/xuất vật tư và nhân công.</p>
+
+  <h4>c) Xuất kho</h4>
+  <p>Khi sửa chữa, vật tư được lấy từ kho đưa vào xe → gọi là <b>xuất kho</b>. Mỗi lần xuất làm giảm số lượng tồn và ghi nhận giá trị giá vốn.
+  Kế toán <b>chỉ được xem</b> các phiếu xuất (không tự xuất), và dùng để đối soát với chi phí sửa chữa.</p>
+
+  <h4>d) Bộ hồ sơ 8 bước</h4>
+  <p>Mỗi phiếu sửa chữa đi qua 8 bước từ lúc vào đến lúc giao xe. Mỗi bước (nếu có phát sinh tiền) sẽ được ghi thành một "bút toán kế toán" tương ứng:</p>
+  <table>
+    <tr><th>Bước</th><th>Tên bước</th><th>Sự kiện tài chính</th><th>Kế toán ghi nhận</th></tr>
+    <tr><td>1</td><td>Tiếp nhận xe</td><td>Mở hồ sơ (chưa có tiền)</td><td>—</td></tr>
+    <tr><td>2</td><td>Kiểm tra & chẩn đoán</td><td>Ước tính chi phí</td><td>—</td></tr>
+    <tr><td>3</td><td>Báo giá nội bộ</td><td>Chưa có khách → không ghi</td><td>—</td></tr>
+    <tr><td>4</td><td>Lập lệnh sửa chữa</td><td>Chốt kế hoạch</td><td>—</td></tr>
+    <tr><td>5a</td><td>Nhập vật tư (NCC + hóa đơn)</td><td>Mua vật tư</td><td>Nợ 152, 133 / Có 331 (hoặc 112)</td></tr>
+    <tr><td>5b</td><td>Xuất vật tư cho sửa chữa</td><td>Chi phí sửa chữa</td><td>Nợ 154 / Có 152</td></tr>
+    <tr><td>5c</td><td>Nhân công (trong/ngoài)</td><td>Chi phí nhân công</td><td>Nợ 622 / Có 334 (trong) hoặc 331 (ngoài)</td></tr>
+    <tr><td>6</td><td>Nghiệm thu (QC)</td><td>Biên bản nghiệm thu</td><td>— (không ghi tiền)</td></tr>
+    <tr><td>7</td><td>Quyết toán phiếu</td><td>Chốt chi phí</td><td>Nợ 642 (thường) hoặc 241 (nâng cấp) / Có 154</td></tr>
+    <tr><td>8</td><td>Giao xe</td><td>Đóng phiếu</td><td>— (khấu hao chạy định kỳ)</td></tr>
+  </table>
+  <div class="note"><b>Với kế toán:</b> Bạn chủ yếu quan tâm <b>bước 5 (nhập/xuất, nhân công)</b>, <b>bước 7 (quyết toán)</b> và việc <b>đối soát</b> giữa kho và sổ sách.
+  Việc ghi bút toán tự động đang được hoàn thiện (xem Phần 2, mục Rủi ro).</div>
+
+  <h3>1.4. Giao diện phần mềm</h3>
+  <p>Phần mềm có 3 bộ giao diện (màu sắc) khác nhau tuỳ khu vực màn hình: Trang chủ (xanh gradient kính mờ),
+  Bảng điều khiển (xanh đậm nổi bật), và các màn hình nghiệp vụ như Kho/Kế toán/Tài sản (nền sáng, dễ đọc).
+  Màn hình tự co giãn cho vừa máy tính, tablet và điện thoại; số tiền luôn căn phải, dễ nhìn.</p>
+  <div class="kpi">
+    <div class="box"><b>16</b><span class="small">khu vực màn hình</span></div>
+    <div class="box"><b>3</b><span class="small">bộ giao diện màu</span></div>
+    <div class="box"><b>Realtime</b><span class="small">cập nhật không cần bấm F5</span></div>
+    <div class="box"><b>A4</b><span class="small">in trực tiếp từ trình duyệt</span></div>
+  </div>
+
+  <h3>1.5. Vị thế so với phần mềm cùng loại</h3>
+  <p>So với các phần mềm gara trong nước (như VC Garage, Carsoft, MISA AMIS) và quốc tế (Fullbay, Shopmonkey),
+  cencomOS mạnh về: <b>tự chủ được mã nguồn</b>, <b>có thể cài đặt tại công ty (mạng nội bộ)</b> thay vì trả phí thuê bao theo người dùng,
+  và <b>cập nhật theo thời gian thực</b>. Điểm đang hoàn thiện: báo cáo kế toán VAS đầy đủ (sổ cái, cân đối kế toán, hóa đơn điện tử) và một số tiện ích thương mại.</p>
+
+  <div class="good"><b>Điểm mạnh nổi bật:</b> Bảo mật đầu vào tốt, phân quyền rõ ràng, kiểm thử nhiều lớp, in ấn A4 tiện lợi, cập nhật realtime.</div>
+
+  <!-- ============ PART 2 ============ -->
+  <h2 id="p2">PHẦN 2 — ĐÁNH GIÁ CHI TIẾT TRONG QUÁ TRÌNH SỬ DỤNG</h2>
+  <p>Phần này tổng hợp những gì <b>tốt</b> và những <b>điểm cần lưu ý</b> khi bạn thực sự ngồi làm việc trên phần mềm hàng ngày.
+  Dựa trên rà soát thực tế hệ thống và báo cáo đánh giá giao diện.</p>
+
+  <h3>2.1. Những điều làm tốt (ưu điểm)</h3>
+  <ul>
+    <li><b>Cập nhật tức thì:</b> Khi bộ phận khác tạo phiếu, duyệt, hoặc xuất kho, màn hình của bạn tự làm mới vùng tương ứng — không cần bấm F5, không bị mất vị trí cuộn.</li>
+    <li><b>Phân quyền an toàn:</b> Bạn chỉ thấy những mục thuộc quyền Kế toán. Người không có quyền không thể sửa chứng từ của bạn.</li>
+    <li><b>Kiểm soát đầu vào:</b> Hệ thống tự kiểm tra và "lọc" dữ liệu nhập sai (tránh gõ nhầm ký tự lạ, số âm, thiếu thông tin).</li>
+    <li><b>In ấn:</b> In hồ sơ phiếu, chứng từ ra khổ A4 trực tiếp từ trình duyệt, font chữ rõ ràng.</li>
+    <li><b>Lưu vết:</b> Mọi thao tác quan trọng (tạo, duyệt, quyết toán, xoá mềm) đều được ghi nhật ký để truy cứu sau này.</li>
+  </ul>
+
+  <h3>2.2. Những điểm cần lưu ý (hạn chế / rủi ro)</h3>
+  <div class="bad">
+    <b>1. Menu dẹt, dễ thao tác nhầm:</b> Tất cả chức năng nằm chung một cột dọc dài. Với người mới (đặc biệt Giám đốc), dễ bấm nhầm mục.
+    <i>Khuyên:</i> Hãy nhớ 4–5 mục bạn hay dùng (Trang chủ, Đề xuất/Mua, Kho, Tài sản, Báo cáo) và thu hẹp tầm nhìn vào đó.
+  </div>
+  <div class="bad">
+    <b>2. Bảng chưa có sắp xếp/lọc chuẩn:</b> Các danh sách (vật tư, phiếu, chứng từ) hiện chỉ hiển thị đơn giản, chưa có nút bấm để sắp xếp cột hay lọc nhanh như Excel.
+    <i>Khuyên:</i> Khi đối soát số lượng lớn, hãy dùng ô tìm kiếm (theo biển số, mã phiếu) thay vì lướt tay.
+  </div>
+  <div class="bad">
+    <b>3. Màn hình tối gây mỏi mắt:</b> Một số màn hình dùng nền xanh đen đậm, đọc bảng số liệu lâu dễ mệt mắt — không hợp với kế toán ngồi đối chiếu cả ngày.
+    <i>Khuyên:</i> Dùng chế độ sáng (theme trắng) ở các màn hình Kho/Kế toán/Tài sản; giảm thời gian trên màn hình tối.
+  </div>
+  <div class="bad">
+    <b>4. Dùng trên điện thoại còn hạn chế:</b> Lập phiếu tiếp nhận trên điện thoại hiện khá khó (form dài, nút nhỏ).
+    <i>Khuyên:</i> Kế toán nên thao tác trên máy tính hoặc tablet; điện thoại chỉ để xem thông báo/chat.
+  </div>
+  <div class="bad">
+    <b>5. Giám đốc mặc định có quyền sửa:</b> Nếu tài khoản Giám đốc dùng chung hoặc vô tình sửa dữ liệu sản xuất, sẽ rủi ro sai lệch.
+    <i>Khuyên:</i> Nên để Giám đốc ở chế độ "chỉ xem"; mọi sửa đổi do đúng người phụ trách thực hiện.
+  </div>
+  <div class="bad">
+    <b>6. Trang trống/đang tải chưa rõ ràng:</b> Đôi khi màn hình trống khiến người dùng tưởng "bị treo".
+    <i>Khuyên:</i> Nếu màn hình trắng lâu, hãy chờ vài giây hoặc bấm F5; đừng bấm liên tục gây trùng thao tác.
+  </div>
+
+  <h3>2.3. Rủi ro nghiệp vụ kế toán cần biết</h3>
+  <ul>
+    <li><b>Kế toán nên "chỉ xem, không tự sửa" dữ liệu sản xuất:</b> Việc tạo/sửa phiếu SC, nhập/xuất kho do bộ phận chuyên trách. Kế toán vào để <i>kiểm tra, duyệt mua, quyết toán và đối soát</i>. Tránh tự sửa trực tiếp làm sai lệch hiện trường xưởng.</li>
+    <li><b>Đối soát Kho ↔ Sổ sách:</b> Giá trị tồn kho trên màn hình Kho phải khớp với số dư tài khoản 152. Nếu thấy chênh, báo bộ phận kỹ thuật/xưởng kiểm tra ngay.</li>
+    <li><b>Module kế toán VAS đầy đủ đang hoàn thiện:</b> Hiện tại các màn hình <b>Mua, Kho (xem), Tài sản, SC (xem), Báo cáo</b> đã dùng được. Riêng <b>sổ cái kép, báo cáo Cân đối kế toán (CĐKT), công nợ phải trả nhà cung cấp chi tiết, và hóa đơn điện tử đầu vào</b> đang được bổ sung (kế hoạch phiên bản 4.2). Khi đó, bút toán tự động từ 8 bước nêu trên sẽ chạy đầy đủ.</li>
+  </ul>
+
+  <h3>2.4. Bảo mật — lưu ý thực tế</h3>
+  <ul>
+    <li>Luôn đăng nhập bằng tài khoản riêng, <b>không chia sẻ mật khẩu</b>.</li>
+    <li>Đổi mật khẩu ngay lần đầu đăng nhập (hệ thống sẽ bắt buộc).</li>
+    <li>Dùng đường truyền <b>HTTPS (khóa màu xanh trên thanh địa chỉ)</b> khi làm việc từ xa; không nhập chứng từ trên mạng không bảo mật.</li>
+    <li>Hệ thống hiện <b>chưa giới hạn số lần đăng nhập sai</b> — hãy giữ kỹ mật khẩu, tránh bị đoán.</li>
+  </ul>
+
+  <!-- ============ PART 3 ============ -->
+  <h2 id="p3">PHẦN 3 — HƯỚNG DẪN KẾ TOÁN STEP-BY-STEP</h2>
+  <p class="sub">Mỗi bước có ảnh chụp màn hình thật. Làm theo thứ tự. Những chỗ có rủi ro đã được ghi "⚠️ Lưu ý".</p>
+
+  <!-- Step 0 -->
+  <div class="step">
+    <span class="num">0</span><h3>Đăng nhập & đổi mật khẩu lần đầu</h3>
+    <p><b>Thao tác:</b> Mở trình duyệt vào địa chỉ phần mềm → nhập <b>tên đăng nhập</b> và <b>mật khẩu</b> được cấp → bấm <b>Đăng nhập</b>.</p>
+    <p>Nếu là lần đầu, hệ thống bắt buộc bạn <b>đổi mật khẩu mới</b> ngay (màn hình sẽ chỉ cho phép việc này, chưa vào được các màn hình khác). Hãy đặt mật khẩu dễ nhớ với bạn nhưng khó đoán với người khác.</p>
+    <figure>
+      <img src="../screenshots/01-login.png" alt="Màn hình đăng nhập">
+      <figcaption>Hình 1 — Màn hình đăng nhập. Lần đầu sử dụng sẽ bị chuyển sang trang đổi mật khẩu.</figcaption>
+    </figure>
+    <div class="note">⚠️ Lưu ý: Không đặt mật khẩu quá đơn giản (vd: 123456) và không để người khác thấy khi gõ.</div>
+  </div>
+
+  <!-- Step 1 -->
+  <div class="step">
+    <span class="num">1</span><h3>Làm quen Trang chủ</h3>
+    <p>Sau đăng nhập, bạn vào <b>Trang chủ</b>. Đây là "bảng tóm tắt" cho thấy: những việc chờ bạn xử lý, thông báo chưa đọc, đề nghị mua chờ duyệt, phiếu chờ nghiệm thu, vật tư sắp hết tồn.</p>
+    <figure>
+      <img src="../screenshots/02-home.png" alt="Màn hình trang chủ">
+      <figcaption>Hình 2 — Trang chủ với các thẻ tóm tắt (KPI) và Trung tâm thông báo.</figcaption>
+    </figure>
+    <p><b>Mẹo:</b> Mỗi sáng, hãy vào Trang chủ trước để biết hôm nay có gì cần duyệt/đối soát.</p>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="step">
+    <span class="num">2</span><h3>Nghiệp vụ Mua — Tạo & duyệt đề nghị mua</h3>
+    <p>Khi xưởng cần mua vật tư, kế toán có thể <b>tạo đề nghị mua</b> hoặc <b>duyệt</b> đề nghị do người khác tạo.</p>
+    <p><b>Xem danh sách:</b> Vào mục <b>Đề xuất / Đề nghị mua</b> → xem các phiếu, trạng thái (chờ duyệt / đã duyệt / từ chối).</p>
+    <figure>
+      <img src="../screenshots/07-de-xuat-list.png" alt="Danh sách đề nghị mua">
+      <figcaption>Hình 3 — Danh sách đề nghị mua với trạng thái và biển số xe.</figcaption>
+    </figure>
+    <p><b>Tạo mới:</b> Bấm nút tạo (+) → chọn xe, nhập vật tư/dịch vụ cần mua, số lượng, đơn giá → Lưu.</p>
+    <figure>
+      <img src="../screenshots/08-de-xuat-create.png" alt="Tạo đề nghị mua">
+      <figcaption>Hình 4 — Form tạo đề nghị mua: chọn xe, thêm vật tư, điền số lượng và đơn giá.</figcaption>
+    </figure>
+    <p><b>Xem chi tiết & duyệt:</b> Bấm vào một phiếu → xem chi tiết → bấm <b>Duyệt</b> (nếu trong thẩm quyền) hoặc <b>Từ chối</b> (có ghi lý do).</p>
+    <figure>
+      <img src="../screenshots/09-de-xuat-detail.png" alt="Chi tiết đề nghị mua">
+      <figcaption>Hình 5 — Chi tiết đề nghị mua với nút Duyệt/Từ chối.</figcaption>
+    </figure>
+    <div class="note">⚠️ Lưu ý: Quyền duyệt mua của kế toán chỉ áp dụng với các phiếu có giá trị nhỏ hơn ngưỡng quy định (mặc định 5.000.000đ). Phiếu lớn hơn phải do Giám đốc/Quản trị viên duyệt.</div>
+    <p><b>Báo giá nhà cung cấp:</b> Khi có báo giá, vào mục <b>Báo giá NCC</b> để lưu (nhập tay các hạng mục).</p>
+    <figure>
+      <img src="../screenshots/16-baogia.png" alt="Báo giá NCC">
+      <figcaption>Hình 6 — Màn hình lưu báo giá nhà cung cấp (nhập tay).</figcaption>
+    </figure>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="step">
+    <span class="num">3</span><h3>Kho — Xem tồn kho, phiếu nhập & phiếu xuất</h3>
+    <p>Kế toán <b>chỉ được xem</b> kho (không tự nhập/xuất). Mục đích là theo dõi và đối soát.</p>
+    <p>Vào mục <b>Kho</b>, có 4 tab:</p>
+    <ul>
+      <li><b>Tồn kho:</b> danh sách vật tư, số lượng còn, cảnh báo hàng sắp hết.</li>
+      <li><b>Đề nghị mua:</b> các yêu cầu mua đang xử lý.</li>
+      <li><b>Phiếu nhập:</b> vật tư mới mua về kho (có hóa đơn).</li>
+      <li><b>Phiếu xuất:</b> vật tư lấy ra dùng cho sửa chữa.</li>
+    </ul>
+    <figure>
+      <img src="../screenshots/10-kho-vattu.png" alt="Kho tồn kho">
+      <figcaption>Hình 7 — Tab Tồn kho: vật tư, số lượng, ngưỡng cảnh báo.</figcaption>
+    </figure>
+    <figure>
+      <img src="../screenshots/11-kho-dm.png" alt="Kho đề mua">
+      <figcaption>Hình 8 — Tab Đề nghị mua trong Kho.</figcaption>
+    </figure>
+    <figure>
+      <img src="../screenshots/12-kho-nhap.png" alt="Phiếu nhập kho">
+      <figcaption>Hình 9 — Phiếu nhập kho (vật tư về, có nhà cung cấp & hóa đơn).</figcaption>
+    </figure>
+    <figure>
+      <img src="../screenshots/13-kho-xuat.png" alt="Phiếu xuất kho">
+      <figcaption>Hình 10 — Phiếu xuất kho (vật tư lấy ra cho phiếu sửa chữa).</figcaption>
+    </figure>
+    <div class="note">⚠️ Lưu ý đối soát: Tổng giá trị tồn kho hiển thị ở đây phải khớp với số dư tài khoản 152 trên sổ sách. Nếu thấy chênh lệch bất thường, báo bộ phận kho/xưởng kiểm tra ngay.</div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="step">
+    <span class="num">4</span><h3>Phiếu sửa chữa (SC) — Xem danh sách & chi tiết</h3>
+    <p>Kế toán <b>xem</b> các phiếu sửa chữa để nắm chi phí, không tạo/sửa (việc này do tiếp nhận/thợ).</p>
+    <p>Vào mục <b>Phiếu sửa chữa</b> → xem danh sách, trạng thái, tổng tiền, thợ chính, hạn trả xe.</p>
+    <figure>
+      <img src="../screenshots/04-sc-list.png" alt="Danh sách phiếu sửa chữa">
+      <figcaption>Hình 11 — Danh sách phiếu sửa chữa với trạng thái và tổng tiền.</figcaption>
+    </figure>
+    <p><b>Tạo phiếu (tham khảo):</b> Nếu được giao quyền, form tạo gồm: chọn xe, thêm công việc (nguyên nhân, loại xử lý), thêm vật tư, hẹn trả xe.</p>
+    <figure>
+      <img src="../screenshots/05-sc-create.png" alt="Tạo phiếu sửa chữa">
+      <figcaption>Hình 12 — Form tạo phiếu sửa chữa.</figcaption>
+    </figure>
+    <p><b>Chi tiết phiếu:</b> Bấm vào phiếu → xem 8 bước hồ sơ, công việc, vật tư, lịch sử. Đây là nơi kế toán theo dõi tiến độ và chi phí.</p>
+    <figure>
+      <img src="../screenshots/06-sc-detail.png" alt="Chi tiết phiếu sửa chữa">
+      <figcaption>Hình 13 — Chi tiết phiếu: timeline trạng thái, công việc, vật tư, lịch sử.</figcaption>
+    </figure>
+  </div>
+
+  <!-- Step 5 -->
+  <div class="step">
+    <span class="num">5</span><h3>Tài sản & Quyết toán</h3>
+    <p>Vào mục <b>Tài sản</b> để xem báo cáo xe, lịch sử sửa chữa, và thực hiện <b>quyết toán</b> (chốt chi phí của một phiếu sửa chữa).</p>
+    <figure>
+      <img src="../screenshots/15-asset.png" alt="Tài sản và quyết toán">
+      <figcaption>Hình 14 — Màn hình Tài sản: báo cáo, tra cứu xe, lịch sử, nút Quyết toán.</figcaption>
+    </figure>
+    <p><b>Quyết toán:</b> Chọn phiếu đã hoàn thành đủ 8 bước → bấm <b>Quyết toán</b>. Hệ thống chốt tổng chi phí (vật tư + nhân công), đây là bước sinh bút toán <i>Nợ 642 / Có 154</i>. Một phiếu chỉ quyết toán một lần.</p>
+    <div class="note">⚠️ Lưu ý: Chỉ quyết toán khi phiếu đã qua nghiệm thu và đủ hồ sơ. Quyết toán sai sẽ ảnh hưởng báo cáo chi phí cuối kỳ.</div>
+  </div>
+
+  <!-- Step 6 -->
+  <div class="step">
+    <span class="num">6</span><h3>Bộ hồ sơ 8 bước — Kế toán cần biết gì?</h3>
+    <p>Bộ hồ sơ 8 bước là "hành trình" của một phiếu sửa chữa. Kế toán không làm tất cả 8 bước, nhưng cần hiểu để đối soát:</p>
+    <table>
+      <tr><th>Bước</th><th>Ai làm chính</th><th>Kế toán làm gì</th></tr>
+      <tr><td>1. Tiếp nhận xe</td><td>Tiếp nhận</td><td>Xem thông tin</td></tr>
+      <tr><td>2. Kiểm tra & chẩn đoán (Kiểm tu)</td><td>Thợ/Xưởng</td><td>Xem ước tính chi phí</td></tr>
+      <tr><td>3. Báo giá nội bộ</td><td>Thợ/Xưởng</td><td>Xem</td></tr>
+      <tr><td>4. Lập lệnh sửa chữa</td><td>Xưởng</td><td>Xem</td></tr>
+      <tr><td>5a. Nhập vật tư (NCC + HĐ)</td><td>Thủ kho/Mua</td><td><b>Tạo/duyệt mua, lưu HĐ đầu vào</b></td></tr>
+      <tr><td>5b. Xuất vật tư cho SC</td><td>Thủ kho</td><td><b>Xem phiếu xuất, đối soát</b></td></tr>
+      <tr><td>5c. Nhân công</td><td>Xưởng</td><td>Xem chi phí nhân công</td></tr>
+      <tr><td>6. Nghiệm thu (QC)</td><td>Quản lý</td><td>Xem biên bản</td></tr>
+      <tr><td>7. Quyết toán SC</td><td>Kế toán/Xưởng</td><td><b>Thực hiện quyết toán (Bước 5 ở trên)</b></td></tr>
+      <tr><td>8. Giao xe</td><td>Tiếp nhận</td><td>Xem đóng phiếu</td></tr>
+    </table>
+    <p>Trên màn hình chi tiết phiếu (Hình 13), 8 bước được hiển thị như một dòng thời gian — bạn dễ dàng thấy phiếu đang ở bước nào.</p>
+  </div>
+
+  <!-- Step 7 -->
+  <div class="step">
+    <span class="num">7</span><h3>Kiểm tu (Kiểm tra & nghiệm thu)</h3>
+    <p>"Kiểm tu" gồm hai khâu kế toán cần theo dõi:</p>
+    <ul>
+      <li><b>Kiểm tra/chẩn đoán (bước 2):</b> xác định hư hỏng, ước tính chi phí. Kế toán xem để nắm mức độ.</li>
+      <li><b>Nghiệm thu (bước 6):</b> sau sửa chữa, bộ phận quản lý kiểm tra chất lượng và lập biên bản. Kế toán xem biên bản này trước khi quyết toán (bước 7).</li>
+    </ul>
+    <div class="good">Nguyên tắc: <b>Chưa nghiệm thu đạt → chưa quyết toán.</b> Đừng quyết toán phiếu còn lỗi hay chưa duyệt.</div>
+  </div>
+
+  <!-- Step 8 -->
+  <div class="step">
+    <span class="num">8</span><h3>Báo cáo & Xuất Excel</h3>
+    <p>Vào mục <b>Báo cáo</b> (nếu có trong quyền) để xem các báo cáo chi phí, công nợ, tồn kho. Một số báo cáo cho phép <b>xuất ra Excel</b> để lưu trữ hoặc gửi cơ quan thuế.</p>
+    <div class="note">⚠️ Lưu ý: Một số báo cáo kế toán đầy đủ (Cân đối kế toán, sổ 152/331) đang được hoàn thiện — xem Phần 2.3. Khi có, bạn sẽ xuất trực tiếp từ đây.</div>
+  </div>
+
+  <!-- Step 9 -->
+  <div class="step">
+    <span class="num">9</span><h3>Xử lý sai sót & đối soát cuối ngày</h3>
+    <ul>
+      <li><b>Nhập sai đề nghị mua:</b> nếu chưa duyệt → có thể sửa lại; nếu đã duyệt → hãy <b>Từ chối</b> hoặc báo người tạo huỷ, đừng tự sửa chồng chéo.</li>
+      <li><b>Phiếu nhập/xuất sai:</b> báo thủ kho/xưởng xử lý (kế toán chỉ xem). Hệ thống ghi "xoá mềm" — dữ liệu không mất hẳn, có thể truy cứu.</li>
+      <li><b>Đối soát cuối ngày:</b> vào Trang chủ / Kho xem tổng tồn, tổng phiếu nhập-xuất trong ngày; so khớp với chứng từ giấy/hóa đơn.</li>
+      <li><b>Không chắc chắn:</b> đừng đoán — hỏi quản trị viên hoặc bộ phận chuyên trách trước khi bấm duyệt/quyết toán.</li>
+    </ul>
+    <div class="bad">⚠️ Quy tắc vàng: <b>Mọi nút Duyệt / Quyết toán đều khó quay lại.</b> Hãy kiểm tra kỹ số liệu trước khi bấm.</div>
+  </div>
+
+  <!-- Step 10 -->
+  <div class="step">
+    <span class="num">10</span><h3>Chat nội bộ</h3>
+    <p>Dùng mục <b>Chat</b> để trao đổi và giao việc với kho, xưởng, quản lý. Tin nhắn cập nhật realtime; ảnh gửi trong chat sẽ được tải về máy người nhận (không lưu vĩnh viễn).</p>
+    <figure>
+      <img src="../screenshots/14-chat.png" alt="Chat nội bộ">
+      <figcaption>Hình 15 — Chat nội bộ trao đổi và giao việc.</figcaption>
+    </figure>
+    <div class="note">⚠️ Lưu ý: Không gửi thông tin nhạy cảm (mật khẩu, số tài khoản đối tác) qua chat không cần thiết.</div>
+  </div>
+
+  <!-- ============ APPENDIX ============ -->
+  <h2 id="app">PHỤ LỤC — Quyền kế toán & thuật ngữ đơn giản</h2>
+
+  <h3>A. Quyền của vai trò "Kế toán"</h3>
+  <table>
+    <tr><th>Màn hình / Việc</th><th>Được làm</th></tr>
+    <tr><td>Đề xuất / Đề nghị mua</td><td>Xem, Tạo, Duyệt (trong ngưỡng)</td></tr>
+    <tr><td>Mua & Công nợ NCC</td><td>Xem, Tạo, Duyệt</td></tr>
+    <tr><td>Tài sản</td><td>Xem, Quyết toán</td></tr>
+    <tr><td>Phiếu sửa chữa (SC)</td><td>Chỉ xem</td></tr>
+    <tr><td>Kho</td><td>Chỉ xem (tồn, nhập, xuất, đề mua)</td></tr>
+    <tr><td>Xe, Báo cáo</td><td>Xem</td></tr>
+    <tr><td>Chat</td><td>Xem, Tạo, Sửa</td></tr>
+    <tr><td>Thăm khám (TK)</td><td>Chỉ xem</td></tr>
+    <tr><td>Bảng điều khiển xưởng / Phân quyền</td><td>Không (dành Giám đốc/Quản trị viên)</td></tr>
+  </table>
+
+  <h3>B. Thuật ngữ đơn giản</h3>
+  <table>
+    <tr><th>Từ trên phần mềm</th><th>Hiểu đơn giản là</th></tr>
+    <tr><td>Phiếu SC</td><td>Phiếu sửa chữa của một xe</td></tr>
+    <tr><td>Đề nghị mua / Đề xuất</td><td>Giấy yêu cầu mua vật tư</td></tr>
+    <tr><td>Nhà cung cấp (NCC)</td><td>Người bán vật tư / dịch vụ cho gara</td></tr>
+    <tr><td>Phiếu nhập / xuất</td><td>Giấy ghi vật tư về kho / lấy ra dùng</td></tr>
+    <tr><td>Quyết toán</td><td>Chốt tổng chi phí của một phiếu sửa chữa</td></tr>
+    <tr><td>Nghiệm thu</td><td>Kiểm tra chất lượng sau sửa, lập biên bản</td></tr>
+    <tr><td>HĐĐT đầu vào</td><td>Hóa đơn điện tử mua hàng về (để khấu trừ thuế)</td></tr>
+    <tr><td>Đối soát</td><td>So sánh số trên phần mềm với chứng từ thực tế để xem có khớp không</td></tr>
+    <tr><td>Bút toán</td><td>Dòng ghi nhận tiền vào/ra một tài khoản kế toán</td></tr>
+  </table>
+
+  <!-- ============ PRODUCTION CHECK ============ -->
+  <div class="prod">
+    <h2 id="prod">⚠️ Lưu ý hệ thống sản xuất (Production Check)</h2>
+    <p><b>1. Còn thiếu gì?</b> Module kế toán VAS đầy đủ (sổ cái kép, báo cáo Cân đối kế toán, công nợ phải trả NCC chi tiết, hóa đơn điện tử đầu vào, kiểm thử đối chiếu "giữ nguyên 100% logic cũ") đang trong lộ trình bổ sung (kế hoạch phiên bản 4.2). Hiện kế toán dùng các màn hình Mua / Kho (xem) / Tài sản / SC (xem) / Báo cáo. Ảnh minh hoạ là ảnh thật chụp ngày 15/08/2026 từ phiên bản đang chạy.</p>
+    <p><b>2. Rủi ro ở đâu?</b> (a) Kế toán dễ vô tình sửa dữ liệu sản xuất nếu được cấp quyền rộng — nên giới hạn "chỉ xem" với SC/Kho. (b) Đối soát 152↔tồn kho phải khớp; nếu lệch cần báo ngay. (c) Bảo mật bề mặt: chưa giới hạn đăng nhập sai, CSRF chưa dùng token, cookie chưa Secure trên localhost — cần HTTPS khi dùng thực tế. (d) Giao diện: menu dẹt dễ nhầm, bảng chưa lọc/sắp xếp chuẩn, màn hình tối mỏi mắt.</p>
+    <p><b>3. Đã chạy kiểm thử chưa?</b> Theo đánh giá chất lượng hệ thống (16/08/2026): kiểm thử đơn vị 237/237, hợp đồng 78/78, E2E 11/11, tải k6 103/103 — đều đạt. Tuy nhiên <b>kiểm thử đối chiếu nghiệp vụ (conformance parity từ bản cũ)</b> chưa hoàn thành, nên một số luồng kế toán mới cần tự bạn xác nhận thực tế khi dùng.</p>
+    <p><b>4. Đề xuất tiếp theo?</b> (i) Hoàn thiện sổ cái VAS + CĐKT + công nợ NCC + HĐĐT đầu vào (v4.2). (ii) Chuẩn hoá bảng dạng Excel (lọc/sắp xếp), chuyển Kho/Kế toán sang nền sáng. (iii) Thêm giới hạn đăng nhập sai & CSRF token thực. (iv) Tạo "workspace Kế toán" riêng để menu gọn, tránh thao tác nhầm. (v) Bổ sung trạng thái trống/đang tải rõ ràng.</p>
+    <p class="small">Tài liệu này được soạn từ rà soát thực tế mã nguồn, tài liệu kiến trúc, báo cáo đánh giá chất lượng và ảnh chụp phiên bản đang vận hành. Vui lòng cập nhật khi phiên bản 4.2 hoàn thiện để hướng dẫn sát thực tế hơn.</p>
+  </div>
+
+</div>
+</body>
+</html>

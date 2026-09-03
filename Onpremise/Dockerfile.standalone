@@ -1,24 +1,18 @@
 # ===== ON-PREMISE STANDALONE BUILD (Docker) =====
-# Multi-stage: build Next.js standalone → run with minimal node:alpine
+# dung pre-built standalone output tu local dev
 # Context: repo root (E:\APP-LAPTOP-SYNC\cencomOS_gara_4.0_supa)
 
-# ===== BUILD STAGE (dùng pre-built standalone từ local dev để tối ưu thời gian) =====
-# NOTE: Next.js standalone phải được build trước trên dev host:
-#   cd apps/web && npm run build
-# Output: apps/web/.next/standalone + apps/web/.next/static
+# ===== BUILD STAGE: copy static files tu .next =====
 FROM node:22-alpine AS builder
-
-WORKDIR /app
-
-# Empty builder stage — chỉ để copy pre-built artifacts
-# (avoid slow npm install + next build trong container)
+WORKDIR /build
+COPY apps/web/.next/static ./apps/web/.next/static
+COPY apps/web/public ./apps/web/public
 
 # ===== PRODUCTION STAGE =====
 FROM node:22-alpine AS runner
-
 WORKDIR /app
 
-# Tạo user không phải root để bảo mật (security best practice)
+# Tao user khong phai root
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S -u 1001 -G nodejs nextjs
 
@@ -27,25 +21,29 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Copy pre-built Next.js standalone từ build context (repo root pre-built)
-# Next.js standalone output: apps/web/.next/standalone (server.js + node_modules + apps)
-COPY apps/web/.next/standalone ./
-COPY apps/web/.next/static ./apps/web/.next/static
-# NOTE: apps/web/public nay dung Next.js static rendering — skip neu khong co
+# (E3) Copy pre-built Next.js standalone tu tarball
+# (dung tarball vi Docker Desktop tu dong exclude node_modules khi COPY truc tiep)
+COPY standalone-build.bin /tmp/
+RUN tar xzf /tmp/standalone-build.bin -C /app --strip-components=1 && rm /tmp/standalone-build.bin
 
-# Set permissions cho user nextjs
+# (FIX) Copy static files tu build stage (standalone-build.bin KHONG bao gom .next/static)
+COPY --from=builder /build/apps/web/.next/static /app/apps/web/.next/static
+COPY --from=builder /build/apps/web/public /app/apps/web/public
+
+# Set permissions
 RUN chown -R nextjs:nodejs /app
+RUN chown -R nextjs:nodejs /app/apps/web/.next/static /app/apps/web/public 2>/dev/null || true
 
-# Thư mục lưu ảnh chat (named volume sẽ init từ image, giữ quyền nextjs để ghi được)
+# Chat images directory
 RUN mkdir -p /app/chat_imgs && chown -R nextjs:nodejs /app/chat_imgs
 
 USER nextjs
 
 EXPOSE 3000
 
-# Health check — gọi API health (dùng 127.0.0.1 tránh lỗi IPv6 localhost)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=5 \
   CMD wget -qO- http://127.0.0.1:3000/api/health 2>/dev/null | grep -q 'ok' || exit 1
 
-# Chạy standalone server (monorepo: server.js nằm ở apps/web/server.js)
+# (E3) Standalone server phuc vu ca page va static files
 CMD ["node", "apps/web/server.js"]

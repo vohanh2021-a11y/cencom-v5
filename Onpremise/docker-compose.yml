@@ -1,4 +1,4 @@
-services:
+﻿services:
   # ============== PostgreSQL (Supabase self-hosted) ==============
   supabase-db:
     container_name: supabase-db
@@ -19,7 +19,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ============== Realtime (WebSocket) ==============
+# ============== Realtime (WebSocket) ==============
   supabase-realtime:
     container_name: supabase-realtime
     image: supabase/realtime:latest
@@ -76,12 +76,15 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
+    # WARNING: Order matters â€” .env.onpremise (template) MUST come FIRST,
+    # .env.onpremise.local (real secrets) MUST come LAST to override.
+    # Swapping these will leak placeholder secrets into production!
     env_file:
-      - .env.onpremise.local
       - .env.onpremise
+      - .env.onpremise.local
     environment:
-      # env_file KHÔNG nội suy ${VAR} → override DATABASE_URL bằng giá trị compose nội suy
-      # từ Onpremise/.env (DB_PASSWORD/DB_NAME đã concrete). CHAT_IMG_DIR để lưu ảnh chat.
+      # env_file KHÃ”NG ná»™i suy ${VAR} â†’ override DATABASE_URL báº±ng giÃ¡ trá»‹ compose ná»™i suy
+      # tá»« Onpremise/.env (DB_PASSWORD/DB_NAME Ä‘Ã£ concrete). CHAT_IMG_DIR Ä‘á»ƒ lÆ°u áº£nh chat.
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@supabase-db:5432/${DB_NAME}
       - CHAT_IMG_DIR=/app/chat_imgs
     volumes:
@@ -98,12 +101,13 @@ services:
       - cencom-web
       - supabase-realtime
       - supabase-storage
-    ports:
-      - "80:80"
-      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
+    # Force IPv4-only binding (tránh conflict với WireGuard ::443)
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
     command: ["nginx", "-g", "daemon off;"]
 
 # ============== Persistent Volumes (bind mount to local folders) ==============
@@ -121,3 +125,4 @@ volumes:
       o: bind
       device: ./volumes/storage_data
   chat_imgs:
+

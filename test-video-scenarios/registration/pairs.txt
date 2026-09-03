@@ -1,0 +1,5 @@
+intro|Chào bạn, video này hướng dẫn đăng ký tài khoản mới vào hệ thống CencomOS
+step1|Buoc nhap ho va ten va email
+step2|Buoc nhap mat khau it nhat 6 ky tu
+step3|Buoc nhap nut dang ky de tao tai khoan
+hoan|Hoan tat, tai khoan da duoc tao thanh cong vao he thong CencomOS

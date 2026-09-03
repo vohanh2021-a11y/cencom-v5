@@ -1,35 +1,88 @@
+# =============================================================================
+# .gitignore — CencomOS Gara 4.0 (Monorepo)
+# =============================================================================
+
 # Dependencies
 node_modules/
+**/node_modules/
 
 # Build outputs
 .next/
 out/
-dist/
 build/
+dist/
+*.bin
+standalone-build.bin
 
-# Env & secrets (KHÔNG BAO GIỜ commit)
+# Environment files (SECRETS - NEVER COMMIT)
 .env
-.env.*
-!.env.example
-!.env.local
-Onpremise/.env.onpremise
-!Onpremise/.env.onpremise
-# .env.onpremise.local chứa secrets — luôn bỏ qua (không được commit)
-.Onpremise/.env.onpremise.local
+.env.local
+.env.*.local
 .env.onpremise.local
+.env.production.local
 
-# Vercel / Supabase local
-.vercel/
-supabase/.temp/
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test artifacts
+test-results/
+playwright-report/
+coverage/
+*.lcov
+.nyc_output/
 
 # Logs
 *.log
-logs/
+
+# DesktopLauncher (Tauri) - build outputs & generated files
+DesktopLauncher/src-tauri/target/
+DesktopLauncher/src-tauri/nsis-hooks.generated.nsh
+DesktopLauncher/src-tauri/launcher.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+srv*.log
+
+# Docker
+docker-compose.override.yml
+**/volumes/
+**/pg_data/
+**/storage_data/
+**/chat_imgs/
 
 # OS
-.DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Test artifacts
-coverage/
-playwright-report/
+# Turbo / Build cache
+.turbo/
+.vercel/
+
+# TypeScript
+*.tsbuildinfo
+
+# Misc
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Supabase local
+supabase/.temp/
+supabase/migrations/.backup/
+
+# Backup files
+*.bak
+*.backup
+backups/
+
+# Windows
+*.lnk

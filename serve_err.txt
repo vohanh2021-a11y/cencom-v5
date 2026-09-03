@@ -1,0 +1,6 @@
+timestamp=2026-08-31T04:08:48.033Z level=INFO run=fa5102e6 message=loading path="C:\\Users\\Admin\\.config\\opencode\\config.json"
+timestamp=2026-08-31T04:08:48.043Z level=INFO run=fa5102e6 message=loading path="C:\\Users\\Admin\\.config\\opencode\\opencode.json"
+timestamp=2026-08-31T04:08:48.074Z level=INFO run=fa5102e6 message=loading path="C:\\Users\\Admin\\.config\\opencode\\opencode.jsonc"
+[91m[1mError: [0mUnexpected error
+
+ServeError

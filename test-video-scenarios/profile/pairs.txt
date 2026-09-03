@@ -1,0 +1,5 @@
+intro|Chào bạn, video này hướng dẫn cấu hình hồ sơ người dùng trong hệ thống CencomOS
+step1|Buoc nhap ho va ten day du
+step2|Buoc nhap ten phong ban
+step3|Buoc nhap chuc vu va nut luu cau truc
+hoan|Hoan tat, thong tin cau truc da duoc cap nhat thanh cong vao he thong CencomOS

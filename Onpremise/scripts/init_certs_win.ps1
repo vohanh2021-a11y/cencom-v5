@@ -1,26 +1,69 @@
 param()
-# === init_certs_win.ps1 — Tạo self-signed SSL cert cho on-premise bằng PowerShell ===
-# Dùng cho nginx HTTPS localhost
-$certDir = "E:\APP-LAPTOP-SYNC\cencomOS_gara_4.0_supa\Onpremise\nginx\certs"
+# === init_certs_win.ps1 — Tạo self-signed SSL cert (PEM) cho on-premise bằng Windows ===
+# Sinh cặp server.crt + server.key (PEM) vào Onpremise/nginx/certs để nginx container dùng.
+# Ưu tiên WSL2 openssl (đồng bộ với deploy_windows.ps1); fallback qua cert store + openssl Win.
+# Chạy (Admin PowerShell): .\Onpremise\scripts\init_certs_win.ps1
+
+$ErrorActionPreference = "Stop"
+
+$scriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
+$onpremiseDir = Split-Path -Parent $scriptDir
+$certDir      = Join-Path $onpremiseDir "nginx\certs"
 if (!(Test-Path $certDir)) { New-Item -ItemType Directory -Path $certDir -Force | Out-Null }
 
-# Tạo self-signed cert (trust store cho localhost)
-$cert = New-SelfSignedCertificate -DnsName "localhost" -CertStoreLocation "Cert:\LocalMachine\My" -KeyUsage DigitalSignature,KeyEncipherment,DataEncipherment -FriendlyName "cencomOS-onpremise-local" -NotAfter (Get-Date).AddYears(2)
+$crt = Join-Path $certDir "server.crt"
+$key = Join-Path $certDir "server.key"
 
-# Export cert + private key sang PFX
-$securePass = ConvertTo-SecureString -String "cencom_cert_pass_2026" -AsPlainText -Force
-$certPathPfx = Join-Path $certDir "server.pfx"
-Export-PfxCertificate -Cert "Cert:\LocalMachine\My\$($cert.Thumbprint)" -FilePath $certPathPfx -Password $securePass | Out-Null
+if ((Test-Path $crt) -and (Test-Path $key)) {
+    Write-Host "✅ Cert đã tồn tại:"
+    Write-Host "  $crt"
+    Write-Host "  $key"
+    Write-Host "  (Xoá 2 file này nếu muốn sinh lại.)"
+    exit 0
+}
 
-# Export PEM (cert only) cho nginx
-$certPathPem = Join-Path $certDir "server.crt"
-Export-Certificate -Cert $cert -FilePath $certPathPem | Out-Null
+# --- Cách 1: WSL2 openssl (khuyên dùng) ---
+$wslReady = $false
+try {
+    wsl -u root bash -c "command -v openssl >/dev/null 2>&1 && echo ok" 2>$null
+    $wslReady = ($LASTEXITCODE -eq 0)
+} catch { $wslReady = $false }
 
-Write-Host "Cert created:"
-Write-Host "  $certPathPfx (PFX)"
-Write-Host "  $certPathPem (cert PEM)"
-Write-Host "Thumbprint: $($cert.Thumbprint)"
-Write-Host ""
-Write-Host "Đẻ bơm cert vơi nginx config:"
-Write-Host "  ssl_certificate     /etc/nginx/certs/server.crt;"
-Write-Host "  ssl_certificate_key /etc/nginx/certs/server.pfx;"
+if ($wslReady) {
+    # Map Windows path -> WSL path (E:\... -> /mnt/e/...)
+    $wslCertDir = ($certDir -replace '^([A-Za-z]):\\', '/mnt/$1/') -replace '\\', '/'
+    wsl -u root bash -c "mkdir -p '$wslCertDir' && cd '$wslCertDir' && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out server.crt -subj '/C=VN/ST=HoChiMinh/O=CencomOS/OU=IT/CN=cencom.lan' -addext 'subjectAltName=DNS:cencom.lan,DNS:localhost,IP:127.0.0.1' 2>/dev/null"
+    if ((Test-Path $crt) -and (Test-Path $key)) {
+        Write-Host "✅ Cert tạo bằng WSL openssl:"
+        Write-Host "  $crt"
+        Write-Host "  $key"
+        exit 0
+    }
+}
+
+# --- Cách 2: cert store + export PFX, rồi extract key bằng openssl Win (nếu có) ---
+Write-Host "[WARN] WSL2 openssl không sẵn sàng — thử qua cert store Windows..."
+$cert = New-SelfSignedCertificate -DnsName "localhost","cencom.lan" `
+    -CertStoreLocation "Cert:\LocalMachine\My" `
+    -KeyUsage DigitalSignature,KeyEncipherment,DataEncipherment `
+    -FriendlyName "cencomOS-onpremise-local" `
+    -NotAfter (Get-Date).AddYears(2)
+
+$pfxPass = ConvertTo-SecureString -String "cencom_cert_pass_2026" -AsPlainText -Force
+$pfx = Join-Path $certDir "server.pfx"
+Export-PfxCertificate -Cert "Cert:\LocalMachine\My\$($cert.Thumbprint)" -FilePath $pfx -Password $pfxPass | Out-Null
+Export-Certificate -Cert $cert -FilePath $crt | Out-Null
+
+$opensslExe = Get-Command openssl -ErrorAction SilentlyContinue
+if ($opensslExe) {
+    & openssl pkcs12 -in $pfx -nocerts -nodes -password pass:cencom_cert_pass_2026 -out $key 2>$null
+}
+
+if (-not (Test-Path $key)) {
+    Write-Host "[ERROR] Không thể sinh server.key (PEM). Cài OpenSSL Windows hoặc bật WSL2 Ubuntu để init certs. Nginx container sẽ thiếu private key."
+    exit 1
+}
+
+Write-Host "✅ Cert tạo (fallback):"
+Write-Host "  $crt"
+Write-Host "  $key"

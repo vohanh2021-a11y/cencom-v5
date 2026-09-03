@@ -93,3 +93,17 @@
 - [x] H6 Sidebar accessibility: aria-label trên Links, aria-hidden="true" trên icon spans.
 - [x] H7 MASTER.md: thêm dark mode color table + c-elevated + WebP guidelines.
 - [x] H8 Verify: tsc 0 err + build 27 routes + check-skills ERR=0 + check-tokens ERR=0.
+
+## GĐ-H+ — UX Video Audit + Critical Dispatch Fix ✅ (audit) / 🔧 (fix applied)
+
+- [x] H+1 Tạo skill `ux-video-audit` (GLOBAL) + README + đăng ký `SKILL_REGISTER.md` + check-skills ERR=0.
+- [x] H+2 Script quay video: `scripts/record-ux.mjs` (Playwright recordVideo, 20 bước full-tour) + `scripts/run-ux-audit.ps1` (orchestration).
+- [x] H+3 Sinh demo data: `scripts/seed-demo-data.mjs` (idempotent: SC/Kho/Đề xuất/Đề nghị/Chat/Báo giá + 27 vattu).
+- [x] H+4 Audit tự động (DOM/console/RPC): `scripts/eval-ux.mjs`, `scripts/rpc-all.mjs`, `scripts/verify-ui.mjs`.
+- [x] H+5 **FIX CRITICAL — RPC dispatch** (`rpc-dispatch.ts`): `resolveHandler` (flat+namespace) + `buildApi` có `perm` → 74/95 handlers chạy (từ 0).
+- [x] H+6 FIX `Shell.tsx`: `welcomeData` args `{}`→`[]`.
+- [x] H+7 FIX `welcome.ts`: thêm `welcomeData()` + bỏ khỏi `RPC_META`.
+- [x] H+8 FIX Dark mode: bọc `Shell` bằng `ThemeProvider` (Topbar nằm trong context).
+- [x] H+9 Video re-record (54s) → `videos/cencom-ux-tour-2026-08-15.webm` + `.mp4` + 14 frames.
+- [ ] H+10 **Còn lại (plan riêng)**: 18 handler thiếu — `userAdd/userSetPassword/userSetActive/permMatrix/permSave/thresholdsSet` (user/perm mgmt), `baoGiaCompare`, app-init (`currentUser/appInfo/myPerms/roleOptions/thresholds/vehiclesOptions/phongbanList/checklistGroups/formInitData`), và bỏ `fleetReport/accountingReport` khỏi PUBLIC_FNS (đã loại GĐ2).
+- [ ] H+11 Recheck video thực tế trên máy deploy (Docker + DB) — trình duyệt smoke F3.

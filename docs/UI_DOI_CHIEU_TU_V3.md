@@ -58,8 +58,8 @@
   xem thử đều thấy y hệt nhau ở tab Đề nghị mua / Kho & tồn (cảm giác "copy 1 bản giống nhau").
 - **Đã sửa ở v3.6** (`server/preview.js`):
   - `_demoDM(role)`: `giamdoc/ketoan/quanly` thấy cả 3 (cho_duyet, da_duyet, tu_choi);
-    `khoa` chỉ thấy `da_duyet`; `tho/xuong/laixe` thấy `[]`.
-  - `_demoVattu(role)`: `giamdoc/ketoan/quanly/khoa` thấy đủ 5; `tho`/`xuong` thấy lát cắt
+    `khovattu` chỉ thấy `da_duyet`; `tho/xuong/laixe` thấy `[]`.
+  - `_demoVattu(role)`: `giamdoc/ketoan/quanly/khovattu` thấy đủ 5; `tho`/`xuong` thấy lát cắt
     vật tư liên quan sửa chữa; `laixe` thấy `[]`.
   - `previewKho(role)` truyền `role` xuống `_demoVattu(role)`; `_demoHome(role)` cũng dùng
     `_demoVattu(role)` cho `lowTon`.

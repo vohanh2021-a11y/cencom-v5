@@ -1,13 +1,13 @@
-# Docker build context ignore (repo root)
+node_modules
+.next
 .git
-**/node_modules
-**/.next/cache
-**/dist
-**/coverage
+.gitignore
+.env*
+!.env.example
 *.log
-npm-debug.log*
-.DS_Store
-**/.env
-**/.env.*
-!Onpremise/.env
-!Onpremise/.env.onpremise
+*.tsbuildinfo
+coverage
+.nyc_output
+tests
+README.md
+PLAN.md

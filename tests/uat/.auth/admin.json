@@ -1,0 +1,15 @@
+{
+  "cookies": [
+    {
+      "name": "cen_session",
+      "value": "b20cf0e3a4272a8fdd32e654e8d174a01d9c8dc0d097e00c",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1788248739.768761,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Strict"
+    }
+  ],
+  "origins": []
+}

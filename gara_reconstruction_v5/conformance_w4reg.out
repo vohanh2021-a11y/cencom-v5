@@ -1,0 +1,35 @@
+═══════════════════════════════════════════════════════
+  Isolated Conformance Runner — 27 suites
+═══════════════════════════════════════════════════════
+✓ tests/conformance/admin_rbac.test.ts — 41 passed
+✓ tests/conformance/asset_gttv.test.ts — 12 passed
+✓ tests/conformance/business.test.ts — 28 passed
+✓ tests/conformance/contract.test.ts — 53 passed
+✓ tests/conformance/dm_decide.test.ts — 8 passed
+✓ tests/conformance/dm_read.test.ts — 8 passed
+✓ tests/conformance/ho_so.test.ts — 14 passed
+✓ tests/conformance/in_a4.test.ts — 12 passed
+✓ tests/conformance/kho_cuhong.test.ts — 6 passed
+✓ tests/conformance/kho_phieu2tang.test.ts — 5 passed
+✓ tests/conformance/kho_race.test.ts — 4 passed
+✓ tests/conformance/kho_tonkho.test.ts — 7 passed
+✓ tests/conformance/mcp.test.ts — 7 passed
+✓ tests/conformance/mcp_http.test.ts — 5 passed
+✓ tests/conformance/mcp_resources.test.ts — 12 passed
+✓ tests/conformance/qc206_hoso.test.ts — 13 passed
+✓ tests/conformance/rateLimit.test.ts — 6 passed
+✓ tests/conformance/rbac.test.ts — 319 passed
+✓ tests/conformance/rpc.test.ts — 35 passed
+✓ tests/conformance/rpc_hoso.test.ts — 26 passed
+✓ tests/conformance/sc_approve.test.ts — 6 passed
+✓ tests/conformance/sc_totals.test.ts — 8 passed
+✓ tests/conformance/sc_workline.test.ts — 9 passed
+✓ tests/conformance/search_core.test.ts — 11 passed
+✓ tests/conformance/security.test.ts — 26 passed
+✓ tests/conformance/xuong_cache.test.ts — 13 passed
+✓ tests/conformance/xuong_kanban.test.ts — 8 passed
+
+═══════════════════════════════════════════════════════
+  Suites: 27  |  Tests passed: 702  |  failed: 0
+  ✅ ALL CONFORMANCE SUITES GREEN
+═══════════════════════════════════════════════════════

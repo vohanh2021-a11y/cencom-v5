@@ -1,0 +1,194 @@
+# ============================================================================
+# ai_config.yaml — Ràng buộc cứng cho AI thực hiện nâng cấp v4.3 Workspace
+# Mục đích: AI (hoặc subagent) đọc file này để KHÔNG sai sót về kiến trúc,
+#           bảo mật, thứ tự ưu tiên và cổng kiểm thử.
+# LƯU Ý: Đây là config, không phải code. Không hardcode secret vào đây.
+# ============================================================================
+
+meta:
+  project: cencomos-gara-v4-supa
+  target_version: "4.3.0"
+  base_version: "4.0.0"          # package.json root
+  mode: build                    # đã thoát plan mode
+  owner_role: nguoi_gac_cong     # gatekeeper: bảo mật/async/kiến trúc
+  language_thinking: vi_VN       # 100% tiếng Việt có dấu (CHUAN 0)
+  technical_terms: en_US         # tên biến/hàm/API giữ tiếng Anh
+
+# ---------------------------------------------------------------------------
+# Quy tắc bất di bất dịch (vi phạm = dừng và báo cáo)
+# ---------------------------------------------------------------------------
+invariants:
+  - id: INV1
+    rule: KHÔNG đổi packages/core contract RPC hiện có (chỉ ADD hàm mới)
+    reason: client cũ vẫn gọi POST /api/rpc {fn,args}
+  - id: INV2
+    rule: KHÔNG đổi schema nghiệp vụ cũ trong packages/db/schema.sql (chỉ ADD bảng)
+    reason: giữ tính tương hợp ngược (parity v3.6)
+  - id: INV3
+    rule: KHÔNG đổi RBAC can() — chỉ bổ sung view-only mode ở UI + session
+    reason: phân quyền phải nằm trong hàm xử lý, không chỉ ẩn UI
+  - id: INV4
+    rule: Mọi input người dùng validate + sanitize ở backend (Zod contract)
+    reason: OWASP A03 Injection / A01 Broken Access
+  - id: INV5
+    rule: Async bắt buộc await / trả Promise; cấm fire-and-forget
+    reason: CHUAN 2a — tránh request treo
+  - id: INV6
+    rule: Không hardcode secret; dùng .env + .gitignore
+    reason: OWASP A05 Misconfiguration
+
+# ---------------------------------------------------------------------------
+# Quy ước code (theo AGENTS.md project)
+# ---------------------------------------------------------------------------
+conventions:
+  typescript: strict
+  rpc_contract: "POST /api/rpc {fn,args}"
+  id_format: "PREFIX-000001 (VARCHAR(12)) via db.nextId(prefix)"
+  date_format: "YYYY-MM-DD (TEXT, không đổi)"
+  soft_delete: "deleted_at TEXT DEFAULT '' (KHÔNG DELETE cứng)"
+  sql_param: "$1,$2 (parameterized, không nối chuỗi)"
+  audit: "db.audit (log_audit) cho mọi hành vi quan trọng"
+  theme_tokens: "Tailwind v4 @theme + :root CSS vars; per-workspace qua [data-ws]"
+
+# ---------------------------------------------------------------------------
+# Định nghĩa 4 workspace (nguồn sự thật cho UI)
+# ---------------------------------------------------------------------------
+workspaces:
+  - id: xuong
+    label: "Xưởng"
+    style: "VC Garage mobile-first"
+    theme:
+      primary: "#2563EB"      # blue dịu
+      bg: "#FFFFFF"
+      text: "#1F2937"
+      note: "badge danger/warn/ok GIỮ NGUYÊN (#DC2626/#F59E0B/#16A34A)"
+    routes: [dashboard, sc, de-xuat, nhac-han, asset]
+    audience: [tho, khoa, quanly, giamdoc, admin]
+    components: [Kanban, FAB, BottomNav, ExcelTable]
+
+  - id: kho
+    label: "Kho & Mua"
+    style: "CarDoctor / MISA (trắng đen)"
+    theme:
+      primary: "#0E5A37"      # brand green
+      bg: "#FFFFFF"
+      text: "#1F2937"
+    routes: [kho, thanhly, baogia]
+    audience: [khoa, ketoan, quanly, giamdoc, admin]
+    components: [ExcelTable, ChartCard]
+
+  - id: ketoan
+    label: "Kế toán"
+    style: "CarDoctor + biểu đồ"
+    theme:
+      primary: "#0E5A37"
+      bg: "#FFFFFF"
+      text: "#1F2937"
+    routes: [ke-toan/dashboard, ke-toan/nhap-vat, ke-toan/cong-no, ke-toan/bao-cao, ke-toan/khoa-ky]
+    audience: [ketoan, giamdoc, admin]
+    components: [ExcelTable, ChartCard]
+
+  - id: quantri
+    label: "Quản trị"
+    style: "Calm (hiện tại)"
+    theme:
+      primary: "#0E5A37"
+      bg: "gradient xanh đen (giữ nguyên)"
+      text: "#E8F0E9"
+    routes: [users, perm, audit, preview, xe, khach-hang]
+    audience: [admin]
+    components: [Sidebar hiện tại]
+
+# ---------------------------------------------------------------------------
+# Phân quyền & cơ chế Giám đốc view-only (PA1)
+# ---------------------------------------------------------------------------
+rbac:
+  roles: [admin, tho, khovattu, ketoan, quanly, giamdoc, xuong, pttb, laixe]
+  check_location: "trong hàm xử lý (can()), không chỉ UI"
+  director_view_only:
+    approach: PA1            # mode toggle
+    default_edit_mode: false # giamdoc mặc định KHÔNG sửa
+    enable_flow:
+      - "User bấm 'Bật chỉnh sửa' trên Topbar"
+      - "Modal xác nhận hiển thị"
+      - "editMode=true (chỉ phiên hiện tại)"
+      - "Ghi log_audit (ai, when, ws)"
+    backend_change: none      # can() giữ nguyên; UI không gửi POST khi view-only
+    guard_component: ReadOnlyGuard
+
+# ---------------------------------------------------------------------------
+# Cổng kiểm thử bắt buộc (theo TESTING.md)
+# ---------------------------------------------------------------------------
+testing_gates:
+  workflow: dev-workflow       # 5 bước: brainstorm>plan>TDD>execute>verify
+  tdd: tdd-loop                # RED-GREEN-REFACTOR cho logic cốt lõi
+  debug: systematic-debugging  # root cause trước khi fix
+  commands:
+    typecheck: "npx tsc --noEmit"
+    build: "npm run build"
+    contract: "npm run test:contract"
+    load: "npm run test:load"
+    e2e_mobile: "playwright viewport 375px (login từng ws + FAB)"
+  evidence_before_claim: true  # chưa chạy lệnh thì không nói "pass"
+  must_pass_before_handoff:
+    - "tsc --noEmit = 0 error"
+    - "npm run build success"
+    - "test:contract pass (nếu đổi contract)"
+    - "E2E mobile pass (P3)"
+
+# ---------------------------------------------------------------------------
+# Red Flags — DỪNG và báo cáo nếu vi phạm
+# ---------------------------------------------------------------------------
+red_flags:
+  - "Sửa code trước khi hiểu yêu cầu / chưa duyệt thiết kế"
+  - "Không chạy test mà báo pass"
+  - "Không check quyền trong hàm xử lý"
+  - "Đổi schema/contract cũ (vi phạm INV1/INV2)"
+  - "Hardcode secret / API key"
+  - "Fire-and-forget Promise (không await)"
+  - "Giao diện chỉ ẩn menu mà không filter perms ở server"
+
+# ---------------------------------------------------------------------------
+# Rủi ro đã nhận diện & xử lý (theo OVERVIEW)
+# ---------------------------------------------------------------------------
+risks:
+  - id: R1
+    name: "Lộ quyền qua Workspace selector (IDOR)"
+    level: high
+    mitigation: "Filter perms CẢ server (layout.tsx) VÀ client (SessionContext); backend vẫn can()"
+  - id: R2
+    name: "Giám đốc vô tình chỉnh sửa"
+    level: high
+    mitigation: "editMode default false + modal xác nhận (PA1)"
+  - id: R3
+    name: "ExcelTable treo data lớn"
+    level: medium
+    mitigation: "Pagination server-side + virtualization + cache TTL danh mục"
+  - id: R5
+    name: "Mobile chưa test"
+    level: medium
+    mitigation: "E2E Playwright 375px vào CI"
+  - id: R6
+    name: "Pha trộn theme giữa workspace"
+    level: low
+    mitigation: "data-ws isolate CSS var; badge status không đổi"
+
+# ---------------------------------------------------------------------------
+# Thứ tự ưu tiên (đã chốt)
+# ---------------------------------------------------------------------------
+priority_order:
+  - P1   # Workspace infra (UI only)
+  - P2   # Clone CarDoctor (Kho & Kế toán)
+  - P3   # Clone VC Garage (Xưởng, mobile)
+  - P4   # Backend gap + Sổ quỹ/Phiếu thu (TDD)
+  - P5   # Giám đốc view-only
+  - P6   # Test & Docs
+
+# ---------------------------------------------------------------------------
+# Phạm vi TÍCH CỰC (không làm — để tránh lệch thiết kế)
+# ---------------------------------------------------------------------------
+out_of_scope:
+  - "Doanh thu / Hóa đơn bán hàng / Công nợ khách (AR)"
+  - "Thay đổi backend contract RPC cũ"
+  - "Thay đổi schema nghiệp vụ cũ"
+  - "Xóa bỏ route/contract POST /api/rpc"

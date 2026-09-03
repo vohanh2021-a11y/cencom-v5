@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile Configuration - CencomOS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .profile-container {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 450px;
+        }
+        .profile-container h2 { color: #5d4037; text-align: center; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #333; font-weight: 500; }
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input:focus { outline: none; border-color: #f39c12; }
+        .btn { width: 100%; padding: 16px; background: #f39c12; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.3s; }
+        .btn:hover { background: #f5b041; }
+        .success { text-align: center; padding: 40px; display: none; }
+        .success h2 { color: #27ae60; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div class="profile-container">
+        <h2>Cấu hình hồ sơ</h2>
+        <form id="profile-form">
+            <div class="form-group">
+                <label for="full-name">Họ và tên</label>
+                <input type="text" id="full-name" placeholder="Ho va ten day du">
+            </div>
+            <div class="form-group">
+                <label for="department">Phòng ban</label>
+                <input type="text" id="department" placeholder="Ten phong ban">
+            </div>
+            <div class="form-group">
+                <label for="position">Chức vụ</label>
+                <input type="text" id="position" placeholder="Chuc vu">
+            </div>
+            <button type="submit" class="btn">Luu cau truc</button>
+        </form>
+        <div id="success" class="success">
+            <h2>Da luu cau truc!</h2>
+            <p>Thong tin cau truc da duoc cap nhat.</p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('profile-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const fullName = document.getElementById('full-name').value;
+            const department = document.getElementById('department').value;
+            const position = document.getElementById('position').value;
+            
+            if (fullName && department && position) {
+                document.getElementById('profile-form').style.display = 'none';
+                document.getElementById('success').style.display = 'block';
+            } else {
+                alert('Vui long day du tat ca truong!');
+            }
+        });
+    </script>
+</body>
+</html>

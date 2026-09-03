@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Permission Check - CencomOS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            background: linear-gradient(135deg, #1a1a2e 0(), #16213e 50%, #0f0f23 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .permission-container {
+            background: #1f2937;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            width: 450px;
+            color: white;
+        }
+        .permission-container h2 { color: #ecf0f1; text-align: center; margin-bottom: 30px; }
+        .permission-container p { color: #bdc3c7; margin-bottom: 20px; line-height: 1.6; }
+        .btn { width: 100%; padding: 16px; background: #3498db; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.3s; text-align: center; }
+        .btn:hover { background: #2980b9; }
+        .success { text-align: center; padding: 40px; display: none; color: white; }
+        .success h2 { color: #27ae60; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div class="permission-container">
+        <h2>Kiểm tra phân quyền</h2>
+        <p>He thong se kiem tra quyen truy cap cua tai khoan dang dang nhap.</p>
+        <button id="check-btn" class="btn">Kiem tra ngay</button>
+        <div id="success" class="success">
+            <h2>Quyen hop le!</h2>
+            <p>Tai khoan co quyen truy cap day du.</p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('check-btn').addEventListener('click', function() {
+            // Simulate permission check
+            document.getElementById('check-btn').style.display = 'none';
+            document.getElementById('success').style.display = 'block';
+        });
+    </script>
+</body>
+</html>

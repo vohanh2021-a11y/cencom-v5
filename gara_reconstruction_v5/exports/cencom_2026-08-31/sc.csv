@@ -1,0 +1,4 @@
+﻿id,xe_id,trang_thai,ngay_tao,nguoi_tao,tong_cong,tong_vt,tong,is_test,deleted_at
+SC-000001,VEH-000006,de_xuat,2026-08-31,U-XUONG,0.00,0.00,0.00,0,
+SC-000002,VEH-000006,de_xuat,2026-08-31,U-XUONG,0.00,0.00,0.00,0,
+SC-000003,VEH-000006,de_xuat,2026-08-31,U-ADMIN,0.00,0.00,0.00,1,

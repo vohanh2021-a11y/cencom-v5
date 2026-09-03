@@ -1,0 +1,10 @@
+node_modules/
+dist/
+state.json
+.env
+*.log
+*.err
+*.pid
+serve*.txt
+bridge.pid
+.DS_Store

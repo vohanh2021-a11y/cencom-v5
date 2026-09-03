@@ -1,0 +1,27 @@
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+ ✓ Compiled /instrumentation in 199ms (24 modules)
+ ✓ Ready in 2.5s
+ ✓ Compiled /api/rpc in 218ms (77 modules)
+ GET /api/rpc 200 in 680ms
+[2026-08-31T20:05:14.761Z] WARN  module=rpc message="RPC error" fn=assetXe error=401 userId=undefined
+ POST /api/rpc 401 in 15ms
+ ✓ Compiled in 80ms (77 modules)
+[2026-08-31T20:06:04.447Z] INFO  module=rpc message="RPC OK" fn=assetXe userId=U-GIAMDOC
+ POST /api/rpc 200 in 46ms
+[2026-08-31T20:06:04.460Z] INFO  module=rpc message="RPC OK" fn=assetXe userId=U-KETOAN
+ POST /api/rpc 200 in 8ms
+[2026-08-31T20:06:04.471Z] INFO  module=rpc message="RPC OK" fn=assetReport userId=U-GIAMDOC
+ POST /api/rpc 200 in 9ms
+[2026-08-31T20:06:04.478Z] WARN  module=rpc message="RPC error" fn=assetXe error=401 userId=undefined
+ POST /api/rpc 401 in 4ms
+[2026-08-31T20:06:04.485Z] WARN  module=rpc message="RPC error" fn=assetReport error=401 userId=undefined
+ POST /api/rpc 401 in 5ms
+[2026-08-31T20:06:04.494Z] INFO  module=rpc message="RPC OK" fn=assetXe userId=U-GIAMDOC
+ POST /api/rpc 200 in 7ms
+[?25h
