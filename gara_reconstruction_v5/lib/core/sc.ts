@@ -96,12 +96,28 @@ async function recalcScTotals(scId: string): Promise<void> {
   );
 }
 
-export async function scList(api: Api, filter?: { trang_thai?: string }): Promise<any[]> {
+/**
+ * GĐ6 — phân trang MỌI danh sách (PLAN "Pagination mọi danh sách").
+ * Mặc định trả 1.000 phiếu MỚI NHẤT (kèm tie-breaker id DESC để OFFSET ổn định —
+ * ORDER BY ngay_tao đơn thuần đổi thứ tự giữa các trang khi nhiều SC cùng ngày);
+ * export /api/export/tonghop truyền limit 20.000 để giữ trọn sổ lịch sử.
+ * Trần cứng 20.000 dòng/chọi: SC 10 năm phình vẫn không sập event loop khi
+ * serialize JSON (risk "DB phình" bảng 6.6/PLAN).
+ */
+export async function scList(
+  api: Api,
+  filter?: { trang_thai?: string; limit?: unknown; offset?: unknown }
+): Promise<any[]> {
   const u = api.auth.current();
   const role = u?.role;
   if (filter?.trang_thai !== undefined && filter.trang_thai !== '' && !TT.includes(filter.trang_thai)) {
     throw new Error('Trạng thái không hợp lệ');
   }
+  let limit = Math.floor(Number(filter?.limit));
+  if (!Number.isFinite(limit) || limit < 1) limit = 1000;
+  if (limit > 20000) limit = 20000;
+  let offset = Math.floor(Number(filter?.offset));
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
   let sql = 'SELECT * FROM sc WHERE deleted_at=$1';
   const params: any[] = [''];
   if (filter?.trang_thai) {
@@ -111,7 +127,11 @@ export async function scList(api: Api, filter?: { trang_thai?: string }): Promis
   if (role !== 'giamdoc' && role !== 'admin') {
     sql += ' AND is_test=0';
   }
-  sql += ' ORDER BY ngay_tao DESC';
+  sql +=
+    ' ORDER BY ngay_tao DESC, id DESC LIMIT $' +
+    params.push(limit) +
+    ' OFFSET $' +
+    params.push(offset);
   const r = await api.db.query(sql, params);
   return r.rows;
 }

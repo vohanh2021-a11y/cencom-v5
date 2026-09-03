@@ -398,3 +398,22 @@ BEGIN
     EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ledger_comp ON ledger(tenant_id, ngay, tai_khoan)';
   END IF;
 END $$;
+
+-- GĐ6 (v5.3) — Trigram GIN phục vụ globalSearch ILIKE '%term%' (lib/core/search.ts):
+-- btree sẵn có (idx_vattu_ten / idx_xe_bien / PK) chỉ tăng tốc được prefix 'x%',
+-- còn '%67%' giữa chuỗi buộc sequential scan khi sc/vattu phình. pg_trgm đi kèm
+-- postgres:16 (contrib) — trên managed cloud thiếu quyền thì block EXCEPTION
+-- xuống NOTICE, schema không abort (search giữ hành vi seq-scan như trước).
+DO $$
+BEGIN
+  BEGIN
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_trgm unavailable — bo qua trigram index: %', SQLERRM;
+    RETURN;
+  END;
+  CREATE INDEX IF NOT EXISTS gix_vattu_ten_trgm ON vattu USING gin (ten gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS gix_xe_bien_trgm   ON xe USING gin (bien_so gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS gix_sc_id_trgm     ON sc USING gin (id gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS gix_dm_id_trgm     ON dm USING gin (id gin_trgm_ops);
+END $$;

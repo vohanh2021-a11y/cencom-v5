@@ -14,11 +14,24 @@ function optionalStr(v: any, label: string): void {
   }
 }
 
-export async function xeList(api: Api): Promise<any[]> {
+export async function xeList(api: Api, filter: { limit?: unknown; offset?: unknown } = {}): Promise<any[]> {
   const u = api.auth.current();
   const role = u?.role;
   if (!(await api.perm.can(api.db, role!, 'xe', 'xem'))) throw new Error('Không đủ quyền');
-  const r = await api.db.query('SELECT * FROM xe WHERE deleted_at=$1 AND is_test=$2 ORDER BY bien_so', ['', 0]);
+  // GĐ6 phân trang (pattern scList): default 2.000, clamped, tie-breaker id.
+  let limit = Math.floor(Number(filter?.limit));
+  if (!Number.isFinite(limit) || limit < 1) limit = 2000;
+  if (limit > 20000) limit = 20000;
+  let offset = Math.floor(Number(filter?.offset));
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  const params: any[] = ['', 0];
+  const r = await api.db.query(
+    'SELECT * FROM xe WHERE deleted_at=$1 AND is_test=$2 ORDER BY bien_so, id LIMIT $' +
+      params.push(limit) +
+      ' OFFSET $' +
+      params.push(offset),
+    params
+  );
   return r.rows;
 }
 

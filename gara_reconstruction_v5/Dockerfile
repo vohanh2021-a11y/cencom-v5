@@ -3,11 +3,10 @@
 # ============================================================
 # BUILD STAGE — build Next.js standalone output
 # ============================================================
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 WORKDIR /app
 
-# libc6-compat: một số native module/pg cần
-RUN apk add --no-cache libc6-compat
+# Debian native glibc — không cần libc6-compat (chỉ Alpine musl mới cần)
 
 # Copy manifest trước để tận dụng layer cache
 COPY package.json package-lock.json ./
@@ -23,14 +22,33 @@ RUN npm run build
 RUN mkdir -p /app/public
 
 # ============================================================
+# MCP STAGE — server AI (mcp-server/http.ts) cho Onpremise/docker-compose.yml
+# Standalone trace KHÔNG gom source .ts → phải COPY lib/ + mcp-server/ +
+# full node_modules builder (MCP SDK là devDep của app — runner prod-slim thiếu).
+# ============================================================
+FROM node:20-slim AS mcp
+WORKDIR /app
+ENV NODE_ENV=production
+RUN npm install -g tsx@4 && npm cache clean --force
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/mcp-server ./mcp-server
+COPY --from=builder /app/lib ./lib
+RUN groupadd -r nodejs && useradd -r -g nodejs mcprun
+RUN chown -R mcprun:nodejs /app
+USER mcprun
+EXPOSE 3001
+CMD ["npx", "tsx", "mcp-server/http.ts"]
+
+# ============================================================
 # RUNTIME STAGE — slim image chạy server.js
 # ============================================================
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
 # Chạy với user non-root
-RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
+RUN groupadd -r nodejs && useradd -r -g nodejs nextjs
 
 # 1) Standalone server output (chứa server.js, node_modules, .next nội bộ)
 COPY --from=builder /app/.next/standalone ./

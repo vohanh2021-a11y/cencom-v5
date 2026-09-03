@@ -67,11 +67,23 @@ async function auditTx(
   );
 }
 
-export async function vattuList(api: Api): Promise<any[]> {
+export async function vattuList(api: Api, filter: { limit?: unknown; offset?: unknown } = {}): Promise<any[]> {
   const u = api.auth.current();
   const role = u?.role;
+  // GĐ6 phân trang (pattern scList): default 2.000 VT, export gọi limit cao hơn;
+  // tie-breaker id để OFFSET ổn định khi hai VT trùng ten.
+  let limit = Math.floor(Number(filter?.limit));
+  if (!Number.isFinite(limit) || limit < 1) limit = 2000;
+  if (limit > 20000) limit = 20000;
+  let offset = Math.floor(Number(filter?.offset));
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  const params: any[] = [];
   const r = await api.db.query(
-    "SELECT * FROM vattu WHERE deleted_at='' AND is_test=0 ORDER BY ten"
+    "SELECT * FROM vattu WHERE deleted_at='' AND is_test=0 ORDER BY ten, id LIMIT $" +
+      params.push(limit) +
+      ' OFFSET $' +
+      params.push(offset),
+    params
   );
   return r.rows;
 }

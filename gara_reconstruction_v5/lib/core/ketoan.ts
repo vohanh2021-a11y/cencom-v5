@@ -20,6 +20,7 @@
  *    SQL (hardening, không đổi kết quả với input hợp lệ).
  */
 import type { Db, Actor, PermLike } from '../types';
+import { cached, clearPrefix } from '../cache';
 import {
   postInner,
   getCogsMethod,
@@ -308,7 +309,14 @@ export interface ReportResult {
   so_quy: { thu: number; chi: number; rows: Array<{ ngay: string; loai_quy: string; doi_tac: string; so_tien: number; ly_do: string }> };
 }
 
-/** Báo cáo kế toán: CĐKT, KQHĐKD chi phí, sổ 152/331/133. */
+/**
+ * Báo cáo kế toán: CĐKT, KQHĐKD chi phí, sổ 152/331/133.
+ * GĐ6 — CACHE TTL 5 PHÚT theo khóa kỳ (thay "MV thống kê" của PLAN cho fn này):
+ * 5 câu SUM/GROUP BY trên ledger (bảng phình nhanh nhất) lặp lại mỗi lần mở
+ * trang; single-flight gộp request đồng thời, 403/throw KHÔNG cache. Số liệu
+ * có thể trễ ≤5 phút so với chứng từ vừa post — chấp nhận cho báo cáo tổng hợp;
+ * kyClose/kyOpen clearPrefix('rpt:kt:') để chốt số đầu kỳ là bản mới nhất.
+ */
 export async function ledgerReport(
   api: KetoanApi,
   q: { tu_ngay?: string; den_ngay?: string } = {}
@@ -317,6 +325,7 @@ export async function ledgerReport(
   const db = asDal(api.db);
   const tu = q.tu_ngay || '0000-01-01';
   const den = q.den_ngay || '9999-12-31';
+  return cached(`rpt:kt:${tu}:${den}`, 300_000, async () => {
   const rows = await db.rows<{ ma_so: string; ten: string; loai: string; no: number; co: number }>(
     `SELECT tk.ma_so, tk.ten, tk.loai, COALESCE(SUM(l.du_no),0) no, COALESCE(SUM(l.du_co),0) co
      FROM ledger l JOIN tai_khoan tk ON tk.ma_so=l.tai_khoan AND tk.deleted_at=''
@@ -359,6 +368,7 @@ export async function ledgerReport(
     rows: sq.map((r) => ({ ngay: r.ngay || '', loai_quy: r.loai_quy || '', doi_tac: r.doi_tac || '', so_tien: r2(r.so_tien), ly_do: r.ly_do || '' })),
   };
   return { ky: { tu_ngay: tu, den_ngay: den }, cdkt, tong_tai_san: r2(tongTS), tong_nguon: r2(tongNV), chi_phi, so_152, so_331, so_133, so_quy };
+  });
 }
 
 /** Khóa kỳ kế toán: đánh dấu da_dong → postInner tự chối ghi chứng từ trong kỳ. */
@@ -376,6 +386,7 @@ export async function kyClose(
     id, arg.ten_ky, arg.tu_ngay, arg.den_ngay
   );
   await db.audit('ke_toan', 'ky_ke_toan', id, meId(api), 'Khóa kỳ ' + arg.ten_ky);
+  clearPrefix('rpt:kt:'); // GĐ6: chốt kỳ → báo cáo cache phải lạnh để đọc số chốt
   return { ok: true, id };
 }
 
@@ -396,6 +407,7 @@ export async function kyOpen(
   if (!r) return { ok: false, error: 'Không tìm thấy kỳ.' };
   await db.run('UPDATE ky_ke_toan SET da_dong=false WHERE id=$1', r.id);
   await db.audit('ke_toan', 'ky_ke_toan', r.id, meId(api), 'Mở lại kỳ');
+  clearPrefix('rpt:kt:'); // GĐ6: kỳ mở lại → số liệu kỳ đó đổi, lạnh cache báo cáo
   return { ok: true, id: r.id };
 }
 

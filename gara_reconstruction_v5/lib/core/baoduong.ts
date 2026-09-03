@@ -141,7 +141,7 @@ export async function baoDuongList(api: Api, arg: { xe_id: string }): Promise<Re
   const xeId = String(arg?.xe_id ?? '').trim();
   if (!xeId) return [];
   const r = await api.db.query(
-    'SELECT id, xe_id, hang_muc, ngay_du_kien, ngay_thuc_hien, trang_thai FROM bao_duong_lich WHERE xe_id=$1 AND deleted_at=$2 ORDER BY id DESC',
+    'SELECT id, xe_id, hang_muc, ngay_du_kien, ngay_thuc_hien, trang_thai FROM bao_duong_lich WHERE xe_id=$1 AND deleted_at=$2 ORDER BY id DESC LIMIT 2000',
     [xeId, '']
   );
   return r.rows;

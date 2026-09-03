@@ -58,13 +58,22 @@ export async function hoSoSave(api: Api, p: { sc_id: string; so_chung_tu?: strin
   return { id };
 }
 
-export async function hoSoList(api: Api, p?: { sc_id?: string }): Promise<any[]> {
+export async function hoSoList(
+  api: Api,
+  p?: { sc_id?: string; limit?: unknown; offset?: unknown }
+): Promise<any[]> {
   let sql = 'SELECT * FROM ho_so WHERE deleted_at=$1 AND is_test=0';
   const params: any[] = [''];
   if (p?.sc_id) {
     sql += ' AND sc_id=$' + (params.push(p.sc_id));
   }
-  sql += ' ORDER BY ngay DESC';
+  // GĐ6 phân trang (pattern scList): default 2.000, tie-breaker id DESC.
+  let limit = Math.floor(Number(p?.limit));
+  if (!Number.isFinite(limit) || limit < 1) limit = 2000;
+  if (limit > 20000) limit = 20000;
+  let offset = Math.floor(Number(p?.offset));
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  sql += ' ORDER BY ngay DESC, id DESC LIMIT $' + params.push(limit) + ' OFFSET $' + params.push(offset);
   const r = await api.db.query(sql, params);
   return r.rows;
 }

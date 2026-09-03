@@ -12,10 +12,20 @@ function optionalStr(v: any, label: string): void {
   }
 }
 
-export async function baogiaList(api: Api): Promise<any[]> {
+export async function baogiaList(api: Api, filter: { limit?: unknown; offset?: unknown } = {}): Promise<any[]> {
+  // GĐ6 phân trang (pattern scList): default 2.000 phiếu BG, tie-breaker id DESC.
+  let limit = Math.floor(Number(filter?.limit));
+  if (!Number.isFinite(limit) || limit < 1) limit = 2000;
+  if (limit > 20000) limit = 20000;
+  let offset = Math.floor(Number(filter?.offset));
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  const params: any[] = [''];
   const r = await api.db.query(
-    'SELECT * FROM baogia WHERE deleted_at=$1 AND is_test=0 ORDER BY ngay DESC',
-    ['']
+    'SELECT * FROM baogia WHERE deleted_at=$1 AND is_test=0 ORDER BY ngay DESC, id DESC LIMIT $' +
+      params.push(limit) +
+      ' OFFSET $' +
+      params.push(offset),
+    params
   );
   return r.rows;
 }

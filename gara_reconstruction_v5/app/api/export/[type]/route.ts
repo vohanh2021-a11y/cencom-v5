@@ -117,6 +117,18 @@ async function xlsxResponse(wb: ExcelJS.Workbook, filename: string): Promise<Res
   });
 }
 
+/**
+ * GĐ6 — chặn "thác nước" export (chuẩn 3a): ExcelJS giữ nguyên workbook trong
+ * RAM rồi buffer hóa (peak ~2× dung lượng file) → semaphore in-process 2 slot.
+ * On-premise 1 web container = 1 event loop ⇒ đủ chắn CPU/RAM; client nhận 429
+ * + Retry-After thì retry sau khi slot trống (không mất dữ, không queue table).
+ * Trần dòng nguồn: tonghop/tonkho gọi list-core với limit 20.000 — SC/Vattu lịch
+ * sử 10 năm vẫn trọn sổ, còn DB phình quá trần thì trang sau phân trang (TODO
+ * export-nhiều-trang khi thực tế chạm 20k).
+ */
+const EXPORT_MAX_CONCURRENT = 2;
+let exportActive = 0;
+
 export async function GET(req: Request, { params }: { params: { type: string } }) {
   const actor = verifySession(sidFromRequest(req));
   if (!actor) {
@@ -128,6 +140,15 @@ export async function GET(req: Request, { params }: { params: { type: string } }
   if (!(await can(db, actor.role, 'sc', 'xem'))) {
     return textResponse('Không đủ quyền', 403);
   }
+
+  if (exportActive >= EXPORT_MAX_CONCURRENT) {
+    return new Response('Vượt giới hạn export đồng thời — thử lại sau vài giây', {
+      status: 429,
+      headers: { 'Retry-After': '5', 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+  exportActive++;
+  const t0 = Date.now();
 
   const api = buildApi(actor);
   const url = new URL(req.url);
@@ -141,7 +162,10 @@ export async function GET(req: Request, { params }: { params: { type: string } }
   try {
     if (type === 'tonghop') {
       // Danh sách SC (core scList: ẩn is_test cho role ngoài admin/giamdoc) + biển số (xeList).
-      const [scs, xes] = await Promise.all([scList(api), xeList(api)]);
+      const [scs, xes] = await Promise.all([
+        scList(api, { limit: 20000 }),
+        xeList(api, { limit: 20000 }),
+      ]);
       const bks = new Map<string, string>();
       for (const x of xes) bks.set(String(x.id), String(x.bien_so ?? ''));
       const ws = wb.addWorksheet('Tổng hợp SC');
@@ -193,7 +217,7 @@ export async function GET(req: Request, { params }: { params: { type: string } }
       if (!(await can(db, actor.role, 'kho', 'xem'))) {
         return textResponse('Không đủ quyền', 403);
       }
-      const vt = await vattuList(api);
+      const vt = await vattuList(api, { limit: 20000 });
       const ws = wb.addWorksheet('Tồn kho');
       ws.columns = [
         { header: 'Mã VT', key: 'id', width: 12 },
@@ -243,5 +267,11 @@ export async function GET(req: Request, { params }: { params: { type: string } }
     }
     log.logError('export failed', err, { type, idQ, actor: actor.id });
     return textResponse('Export lỗi', 500);
+  } finally {
+    exportActive--;
+    // GĐ6: đo thời lượng từng export để phát hiện "DB phình" sớm (WARN khi >5s).
+    const ms = Date.now() - t0;
+    if (ms > 5000) log.logWarn('export chậm (>5s)', { type, ms, actor: actor.id });
+    else log.logInfo('export xong', { type, ms });
   }
 }

@@ -28,6 +28,7 @@ services:
     build:
       context: ../gara_reconstruction_v5
       dockerfile: Dockerfile
+      target: runner
     container_name: cencom_v5_web
     restart: unless-stopped
     depends_on:
@@ -54,6 +55,7 @@ services:
     build:
       context: ../gara_reconstruction_v5
       dockerfile: Dockerfile
+      target: mcp
     container_name: cencom_v5_mcp
     restart: unless-stopped
     depends_on:
