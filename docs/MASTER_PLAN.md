@@ -10,10 +10,10 @@
 
 ## 0. Tóm tắt GPS (đọc nhanh)
 
-- **Vị trí hiện tại (03.09):** ✅ `GĐ1–GĐ5 + GĐ8 DONE` (714/714 conformance) + **W6-reg port GĐ4** (ketoan/khachhang/baoduong/ledger, commit `7024f66`) + **Electron desktop** (NSIS 84MB, `ab9fcfa`) + **PWA fixes** + **CI/CD fixes** + **Memory engine**. 🛑 `GĐ6/GĐ9/GĐ10 chưa xong`.
-- **App v5 đã dùng được:** build xanh, UAT 20/20, conformance 714/714 (27 suites), MCP **55 tools** + 4 resources + 3 prompts + HTTP, PWA + workspace 4 trục + in A4 + Electron desktop.
+- **Vị trí hiện tại (04.09):** ✅ `GĐ1–GĐ6 + GĐ8 DONE` (777/777 conformance) + ✅ **GĐ9** stack on-premise chạy thật trên Docker (smoke 6/6 qua nginx HTTPS — verify trên Docker Desktop Windows/WSL2, Ubuntu thật = cùng compose) + **Electron desktop** (NSIS 84MB, `ab9fcfa`) + **PWA fixes** + **CI/CD fixes** + **Memory engine**. 🛑 `GĐ10 chưa xong` (multi-tenant — chỉ khi có khách thứ 2).
+- **App v5 đã dùng được:** build xanh, UAT 20/20, conformance 777/777 (28 suites), MCP **55 tools** + 4 resources + 3 prompts + HTTP, PWA + workspace 4 trục + in A4 + Electron desktop.
 - **Chiến lược deploy:** LAN (on-premise) trước → xuất về hệ thống công ty sau. **KHÔNG Vercel.**
-- **Vấn đề còn lại:** On-premise test deploy, GĐ6 (perf), GĐ10 (multi-tenant).
+- **Vấn đề còn lại:** GĐ10 (multi-tenant, optional), verify backup/restore cron (GĐ7), code-sign Electron installer, rebuild NSIS sau menu-bar.
 
 ---
 
@@ -60,15 +60,15 @@ v5 là **monorepo NPM workspaces** (root `package.json` có `"workspaces": ["pac
 | GĐ3 | PRODUCTION deploy + monitoring + UX UAT (Wave B/C) | Docker on-prem, CI/CD, health/metrics, rollback, ops docs | ✅ **HOÀN THIỆN** (`3a84af4`, 2026-08-21): build xanh, UAT 20/20, 0 lỗi, conformance 236/236, sửa 5 lỗi thực |
 | GĐ4 | Mở rộng nghiệp vụ (chủ xe·kế toán·bảo dưỗng·ledger·tìm kiếm·mail·list·init) | `packages/core/src/{ketoan,khachhang,baoduong,ledger,search,mail,list,init}.ts`; DB `accounting.sql`/`coa_seed.sql`; migrations `004_gd4.sql`/`005_chu_xe.sql`; 12 spec `*_gd*.test.ts` | ✅ **DONE qua hội tụ v5.2.0** (`PLAN_HOI_TU_01.09` W0–W4): race-kg `aaf11c9`, kho 2 tầng/GTTV `da3091e`, DM full + xưởng fn `a262dad`, admin+search+boss `9e26015`. (Nhánh draft ketoan/ledger gốc gộp vào UI v5 — không giữ song song.) |
 | GĐ5 | UI toàn bộ màn hình (PC/tablet/ĐT, theme) | `apps/web/app/(app)/{audit,ke-toan,khach-hang,nhac-han,xe,sc/dashboard,kanban}` + components UI mới | ✅ **DONE** (W1–W4 trong `gara_reconstruction_v5`, commit `da3091e`→`9e26015`): UI kho 4 tab, `/kho/dm`, kanban 5 cột 1-xe-1-thẻ, `/sc` dashboard KPI, GlobalSearch, `/in/*` A4 8 mẫu, workspace 4 trục + 3 theme, PWA. |
-| GĐ6 | Performance: pagination/index/MV/cache/export job | Hết nút thắt cũ | 🛑 |
+| GĐ6 | Performance: pagination/index/MV/cache/export job | Hết nút thắt cũ | ✅ **DONE** (04.09, `476cfde`): phân trang server-side 6 list (default 1k/2k + tie-breaker id), pg_trgm GIN 4 cột search, `ledgerReport` cached 5'-per-kỳ + clear khi chốt kỳ, export semaphore 2 (429+Retry-After) cap 20k dòng. **MV** thống kê: đánh giá thực tế KHÔNG CẦN — `tonKho` đọc cột `vattu.ton` đã-maintain (không SUM), dashboard đã cache 60s; MV chỉ thêm staleness bug. |
 | GĐ7 | Backup 7 ngày + Archive + partition | `Onpremise/scripts/backup.sh` / `restore.sh` / `init_*` | ✅-partial (committed trong GĐ3) |
 | GĐ8 | Conformance full 327 + E2E | ≥320 pass + Playwright E2E | ✅ **DONE** tại `9e26015` (02.09, gate W5-check hiện trường): **714/714 (27 suites)** ≥ 320; Playwright e2e 13/13 (kho 4/4 · dm 4/4 · kanban 4/4 · sc 1/1); rbac 329/329. |
-| GĐ9 | Deploy LAN (on-premise docker-nginx) + hardening | Docker compose, nginx SSE+SSL, localhost HTTPS | ⏳ |
+| GĐ9 | Deploy LAN (on-premise docker-nginx) + hardening | Docker compose, nginx SSE+SSL, localhost HTTPS | ✅ **DONE-verify-Docker** (04.09, `476cfde`): stack 4/4 container healthy, smoke 6/6 qua nginx HTTPS (login→dashboard 42xe→scList phân trang→xlsx→MCP tools/call). Dockerfile node:20-slim + mcp-stage; nginx resolver chống sập-chung; migrate 3-file + init_db.sh + create-mcp-user. Ubuntu thật còn lại = firewall/cron (runbook `Onpremise/README.md`). |
 | GĐ10 | Multi-tenant RLS + thương mại hoá + tag v5.0.0 | docs 2 nơi | 🛑 |
 
 ---
 
-## 4. Trạng thái hiện tại (GPS 2026-09-03 — v5.2.0+)
+## 4. Trạng thái hiện tại (GPS 2026-09-04 — v5.3.0)
 
 - **Phiên bản hiện hành: v5.2.0** (`package.json 5.2.0`; tag `v5.2.0` trên GitHub `vohanh2021-a11y/cencom-v5`).
 - **Hội tụ v5.2.0 (W0–W4) DONE:** race-condition kho + `recalcScTotals` (W0) · trục KHO 2 tầng/tonKho/cu_hong/GTTV (W1) · trục DM duyệt ngưỡng + UI `/kho/dm` (W2) · trục XƯỞNG kanban/KPI 11/sửa dòng/`scTongDuyet`+`sc_phien_ban` (W3) · cross-cutting admin+must_change/GlobalSearch/`/in/*` A4/workspace PA1+3 theme/PWA/NotificationCenter/boss-dashboard (W4). **Conformance 714/714 (27 suites), tsc=0, rbac 329/329, e2e 13/13.**
@@ -78,7 +78,8 @@ v5 là **monorepo NPM workspaces** (root `package.json` có `"workspaces": ["pac
 - **CI/CD Fixes (03.09) DONE:** ci-cd→legacy, deploy.yml fix, uat-video.yml fix.
 - **On-premise v5 (03.09) DONE:** docker-compose PostgreSQL thuần, nginx upstream fix, init_db.sh v5, .env.example đầy đủ.
 - **Memory Engine (03.09) DONE:** `docs/memory/` 6 files (Chuẩn 9).
-- **Chưa làm / còn treo:** GĐ6 (perf tune MV/pagination sâu), GĐ9 (deploy LAN production + hardening runbook), GĐ10 (multi-tenant RLS + thương mại hoá).
+- **GĐ6+GĐ9 (04.09) DONE:** phân trang + cache báo cáo + trigram + export semaphore (`476cfde`). Stack on-premise **chạy thật trên Docker** — smoke 6/6 PASS (`Onpremise/scripts/smoke_onpremise.mjs`), conformance **777/777** CONF_EXIT=0, tsc 0.
+- **Chưa làm / còn treo:** GĐ10 (multi-tenant RLS + thương mại hoá — chỉ khi có khách thứ 2; verify backup GĐ7 trên host thật; NSIS rebuild sau menu-bar).
 
 
 ---
