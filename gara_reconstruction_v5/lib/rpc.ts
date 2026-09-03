@@ -13,6 +13,13 @@ import * as boss from './core/boss';
 // (core/search.ts) và đổi mật khẩu tự thân (lib/auth.ts — port handlers.js:551).
 import * as admin from './core/admin';
 import * as search from './core/search';
+// W6-reg (kế toán GĐ2–GĐ4 + khách hàng + bảo dưỡng): core port nguyên từ draft
+// v4 — quyền tinh (checkLock ke_toan.vat/chi/baocao/ky…) enforce TRONG lõi
+// (lib/core/ketoan.ts, ledger.ts), META dưới đây là gate dispatch coarse 2 lớp.
+import * as ketoan from './core/ketoan';
+import * as ledger from './core/ledger';
+import * as khachhang from './core/khachhang';
+import * as bd from './core/baoduong';
 import { changePassword as authChangePassword } from './auth';
 import { can, ROLES } from './perm';
 
@@ -130,6 +137,38 @@ export const FN_LIST: string[] = [
   // theo kho.xem) — quyền tinh nằm TRONG core, đúng pattern dashboardAll.
   'bossDashboard',
   'bossAlerts',
+  // W6-reg · KẾ TOÁN (lib/core/ketoan.ts — GĐ2–GĐ4, port nguyên draft v4):
+  // đọc/đối chiếu (tinhGiaVon/reconcileKho/congNoList/ledgerReport), ghi
+  // (vatInvoiceSave/phieuChiCreate — lõi checkLock 'vat'/'chi'), khóa kỳ
+  // (kyClose/kyOpen — lõi checkLock 'ky'). KHÔNG reg: reconcileInit (go-live
+  // 1 lần, gate 'quyet'), congNoChuaCoHoaDon (báo cáo phụ route in),
+  // buildReportHtml/Pdf/ledgerReportPdf (hàm render binary — chuyện route /in/*).
+  'tinhGiaVon',
+  'reconcileKho',
+  'vatInvoiceSave',
+  'phieuChiCreate',
+  'congNoList',
+  'ledgerReport',
+  'kyClose',
+  'kyOpen',
+  // W6-reg · SỔ CÁI KÉP (lib/core/ledger.ts): ledgerPost ghi chứng từ Nợ=Có
+  // (lõi check ke_toan.tao + chặn kỳ đóng), ledgerList tra bút toán (ke_toan.xem).
+  // KHÔNG reg: postInner/asDal/runInTransaction/getCogsMethod/phieuThuCreate
+  // (hạ tầng nội bộ module khác gọi; phieuThuCreate chờ đợt reg thuế).
+  'ledgerPost',
+  'ledgerList',
+  // W6-reg · KHÁCH HÀNG / NCC (lib/core/khachhang.ts): CRM chủ xe + nhà cung
+  // cấp (la_ncc). Lõi chỉ require đăng nhập → QUYỀN TRỌN Ở DISPATCH META
+  // ['khach_hang','xem'/'tao'] — MATRIX chưa cấp module này cho vai nào ngoài
+  // admin (fail-closed có chủ đích, xem header khachhang.ts + perm.ts W6).
+  'khachHangList',
+  'khachHangGet',
+  'khachHangSave',
+  'khachHangDel',
+  // W6-reg · BẢO DƯỠNG ĐỊNH KỲ (lib/core/baoduong.ts): lịch theo xe. Gate lõi
+  // 'xe','tao'/'xem' ≡ tiền lệ xeCreate/xeList — META khớp lõi, không lỏng hơn.
+  'baoDuongTao',
+  'baoDuongList',
 ];
 
 export const OPEN: Set<string> = new Set(['login', 'logout', 'currentUser', 'appInfo']);
@@ -273,6 +312,49 @@ const META: Record<string, [string, string]> = {
   // nhạy cảm tự rỗng theo quyền CORE của từng nguồn (không lộ chéo).
   bossDashboard: ['sc', 'xem'],
   bossAlerts: ['sc', 'xem'],
+  // ── W6-reg — KẾ TOÁN (module 'ke_toan') ─────────────────────────────────
+  // Gate dispatch dừng ở 3 nhãn kh coarse ['ke_toan','xem'|'tao'|'ky'] theo
+  // hợp đồng reg; PHÁN QUYẾT TINH nằm TRONG lõi checkLock (ketoan.ts):
+  //   reconcileKho/congNoList/ledgerReport → 'xem'/'baocao' · vatInvoiceSave →
+  //   'vat' · phieuChiCreate → 'chi' · kyClose/kyOpen → 'ky' · ledgerPost →
+  //   'tao' (ledger.ts). MATRIX (lib/perm.ts) cấp ĐỦ cả 6 nhãn cho vai ketoan
+  //   để chuỗi xem→lõi thông; admin bypass. Khuôn coarse-META + fine-core ≡
+  //   precedent dmDecide (['kho','xem'] + ngưỡng trong core).
+  // tinhGiaVon: HÀM TÍNH thuần trên db (COGS binh_quan/fifo, không đụng auth,
+  // không ghi) → ['ke_toan','xem']; args {vattu_id, so_luong} → handler gọi
+  // ketoan.tinhGiaVon(api.db, …) rồi BỌC envelope {ok,result} (lõi trả số
+  // trần — bọc để đồng nhất khuôn {ok,...} với các fn W1b+ trên cùng kênh MCP).
+  // 'baocao' là nhãn LÕI (kế toán trưởng) chứ KHÔNG phải nhãn dispatch:
+  // ledgerReport reg 'xem' — ai có ke_toan.xem được THỬ báo cáo, lõi tự
+  // chặn nốt nếu vai không mang 'baocao' (ketoan có cả hai → hành vi ≡ v4).
+  tinhGiaVon: ['ke_toan', 'xem'],
+  reconcileKho: ['ke_toan', 'xem'],
+  vatInvoiceSave: ['ke_toan', 'tao'],
+  phieuChiCreate: ['ke_toan', 'tao'],
+  congNoList: ['ke_toan', 'xem'],
+  ledgerReport: ['ke_toan', 'xem'],
+  kyClose: ['ke_toan', 'ky'],
+  kyOpen: ['ke_toan', 'ky'],
+  // ledgerPost: META 'xem' ≡ khuôn dmDecide (cửa dispatch mở cho người đọc sổ,
+  // quyền GHI thật ke_toan.tao lõi ledger.ts:318 phán — envelope {ok:false},
+  // không 403 HTTP). ledgerList: 'xem' khớp lõi ledger.ts:336.
+  ledgerPost: ['ke_toan', 'xem'],
+  ledgerList: ['ke_toan', 'xem'],
+  // ── W6-reg — KHÁCH HÀNG (module 'khach_hang') ───────────────────────────
+  // Lõi khachhang.ts CHỈ require đăng nhập (không checkLock — quyền trọn ở
+  // dispatch theo header file: "chon chuoi META that han"). Del là soft-delete
+  // (deleted_at='x') — gộp nhãn 'tao' theo hợp đồng reg (khách hàng là dữ
+  // liệu kế toán NCC/chủ xe → vai ketoan mang module này; xem perm.ts).
+  khachHangList: ['khach_hang', 'xem'],
+  khachHangGet: ['khach_hang', 'xem'],
+  khachHangSave: ['khach_hang', 'tao'],
+  khachHangDel: ['khach_hang', 'tao'],
+  // ── W6-reg — BẢO DƯỠNG (module 'xe', khớp gate LÕI baoduong.ts:93/140) ──
+  // baoDuongTao → ['xe','tao'] (tiền lệ xeCreate; MATRIX chưa vai nào mang
+  // xe.tao ngoài admin → admin-only hôm nay, đúng ghi chú header baoduong.ts).
+  // baoDuongList → ['xe','xem'] (mọi vai xem xe đều đọc được lịch BD).
+  baoDuongTao: ['xe', 'tao'],
+  baoDuongList: ['xe', 'xem'],
 };
 
 /* eslint-disable no-unused-vars */
@@ -403,6 +485,36 @@ const HANDLERS: Record<string, (_api: Api, _args: any) => Promise<any>> = {
   // bọc {ok:true,result}). Dispatch args||{} → bỏ qua args, an toàn.
   bossDashboard: (api, _a) => boss.bossDashboard(api),
   bossAlerts: (api, _a) => boss.bossAlerts(api),
+  // W6-reg · KẾ TOÁN — core/lib/core/ketoan.ts + ledger.ts. Api (lib/types.ts)
+  // tương thích cấu trúc KetoanApi/LedgerApi (db + auth.current() + perm.can).
+  // Envelope {ok,...}/{ok,error} ở lõi (không throw lỗi nghiệp vụ); riêng
+  // checkLock THROW 'Không đủ quyền' ≡ v3.6 → route trả 400 + message (khí
+  // hậu port nguyên, không đổi). reconcileKho/kyOpen dispatch args||{} → {} an toàn.
+  // tinhGiaVon: hàm tính thuần không auth — chữ ký (db, vattuId, sl) → bọc
+  // envelope {ok,result:number} tại adapter, lõi KHÔNG đổi hành vi (tính nháp,
+  // không trừ tồn — COGS thật do luồng xuatKho/postInner quyết).
+  tinhGiaVon: async (api, a) => ({ ok: true, result: await ketoan.tinhGiaVon(api.db, a.vattu_id, Number(a.so_luong) || 0) }),
+  reconcileKho: (api, _a) => ketoan.reconcileKho(api),
+  vatInvoiceSave: (api, a) => ketoan.vatInvoiceSave(api, a),
+  phieuChiCreate: (api, a) => ketoan.phieuChiCreate(api, a),
+  congNoList: (api, a) => ketoan.congNoList(api, a),
+  ledgerReport: (api, a) => ketoan.ledgerReport(api, a),
+  kyClose: (api, a) => ketoan.kyClose(api, a),
+  kyOpen: (api, a) => ketoan.kyOpen(api, a),
+  ledgerPost: (api, a) => ledger.ledgerPost(api, a),
+  ledgerList: (api, a) => ledger.ledgerList(api, a),
+  // W6-reg · KHÁCH HÀNG — core/lib/core/khachhang.ts. List/Get THROW '401' khi
+  // chưa đăng nhập ≡ port v4 (dispatch đã chặn 401 trước, throw = lưới 2);
+  // Save/Del trả envelope {ok,error}. khachHangList trả {result,total,page,
+  // limit,pages} thô (khuôn paginate v4 — route bọc {ok:true,result}).
+  khachHangList: (api, a) => khachhang.khachHangList(api, a),
+  khachHangGet: (api, a) => khachhang.khachHangGet(api, a.id),
+  khachHangSave: (api, a) => khachhang.khachHangSave(api, a),
+  khachHangDel: (api, a) => khachhang.khachHangDel(api, a.id),
+  // W6-reg · BẢO DƯỠNG — core/lib/core/baoduong.ts: envelope {ok,id/error}
+  // không throw (quy ước W1b+); baoDuongList fail-closed mảng rỗng trong lõi.
+  baoDuongTao: (api, a) => bd.baoDuongTao(api, a),
+  baoDuongList: (api, a) => bd.baoDuongList(api, a),
 };
 /* eslint-enable no-unused-vars */
 

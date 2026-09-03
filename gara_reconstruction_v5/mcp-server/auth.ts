@@ -88,6 +88,24 @@ const READ_TOOLS = new Set<string>([
   // fn (bài học W1a phieuList).
   'bossDashboard',
   'bossAlerts',
+  // W6-reg: 8 fn READ thuần (chỉ SELECT/tính trên db — không ghi, audit chỉ
+  // khi ghi nên ở đây cũng không audit-ghi): tinhGiaVon/reconcileKho/
+  // congNoList/ledgerReport/ledgerList (ke_toan.xem trong lõi), khachHangList/
+  // khachHangGet, baoDuongList. Vào READ_TOOLS để mặc định MCP_WRITE_TOOLS=''
+  // không chặn sai bản chất (bài học W1a phieuList).
+  'tinhGiaVon',
+  'reconcileKho',
+  'congNoList',
+  'ledgerReport',
+  'ledgerList',
+  'khachHangList',
+  'khachHangGet',
+  'baoDuongList',
+  // W6-reg: WRITE KHÔNG vào READ_TOOLS (mặc định deny, bật qua allowlist):
+  // vatInvoiceSave/phieuChiCreate/kyClose/kyOpen (ghi vat_invoice/phieu_chi/
+  // cong_no/ky + bút toán ledger tx); ledgerPost (INSERT chung_tu/ledger);
+  // khachHangSave/khachHangDel (INSERT/UPDATE khach_hang + audit);
+  // baoDuongTao (INSERT bao_duong_lich + audit).
   // W4-reg: userAdd/userSetPassword/userSetActive/thresholdsSet KHÔNG vào
   // READ_TOOLS — WRITE ghi users/config + audit (INSERT/UPDATE/soft-delete).
   // changePassword cũng KHÔNG — dù chỉ đụng tài khoản của chính MCP actor:

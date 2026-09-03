@@ -34,10 +34,22 @@ export const MATRIX: Record<string, Record<string,string[]>> = {
   //    về cơ chế fail-closed do TẤC CẢ module ngoài ma trận — non-admin không
   //    có 'user'/'config' → dispatch 403 trước khi chạm core, core gateAdmin
   //    là lớp 2). KHÔNG cấp 2 module này cho vai nào khác.
+  // W6-reg — module 'ke_toan' + 'khach_hang' (lib/rpc.ts W6, core ketoan/
+  // ledger/khachhang.ts):
+  //  • ke_toan CẤP ĐỦ 6 nhãn vì LÕI checkLock bằng nhãn TINH (ketoan.ts:
+  //    'xem' reconcile/congNo · 'vat' vatInvoiceSave · 'chi' phieuChiCreate ·
+  //    'baocao' ledgerReport · 'ky' kyClose/kyOpen; ledger.ts: 'tao'
+  //    ledgerPost/phieuThuCreate · 'xem' ledgerList). Dispatch META coarse
+  //    (xem/tao/ky) + lõi fine cùng tra MỘT MATRIX → chỉ vai ketoan (và admin
+  //    bypass can():45) đi hết chuỗi; giamdoc/xuong/kho KHÔNG có ke_toan →
+  //    403 ngay dispatch (sổ cái = specialized duty, đúng phân vai v3.6).
+  //  • khach_hang ['xem','tao']: CRM chủ xe/NCC phục vụ công nợ — cấp cho
+  //    ketoan theo hợp đồng reg; admin qua bypass. Vai khác giữ fail-closed
+  //    (header khachhang.ts: "muon mo rong phai them MATRIX co chu dich").
   giamdoc: { xe:['xem'], sc:['xem','duy'], kho:['xem'], mua:['duy'], baogia:['xem'], hoso:['xem'], dashboard:['xem'], activityFeed:['xem'], report:['xem'], security:['doi_mk'] },
   admin:   { all:['all'], user:['admin'], config:['admin'], security:['doi_mk','admin'] },
   xuong:   { sc:['xem','tao','sua','kehoach','duy'], xe:['xem'], kho:['xem'], baogia:['xem'], hoso:['xem'], dashboard:['xem'], activityFeed:['xem'], security:['doi_mk'] },
-  ketoan:  { baogia:['xem','tao'], hoso:['xem','tao','sua'], sc:['xem','kehoach'], kho:['xem'], xe:['xem'], report:['xem'], dashboard:['xem'], activityFeed:['xem'], security:['doi_mk'] },
+  ketoan:  { baogia:['xem','tao'], hoso:['xem','tao','sua'], sc:['xem','kehoach'], kho:['xem'], xe:['xem'], report:['xem'], dashboard:['xem'], activityFeed:['xem'], security:['doi_mk'], ke_toan:['xem','tao','ky','vat','chi','baocao'], khach_hang:['xem','tao'] },
   kho:     { kho:['xem','tao','sua','xuat'], xe:['xem'], sc:['xem'], baogia:['xem'], hoso:['xem'], dm:['xem','tao'], activityFeed:['xem'], security:['doi_mk'] },
 };
 

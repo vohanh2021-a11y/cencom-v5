@@ -297,6 +297,125 @@ export const RPC_SCHEMAS: Record<string, z.ZodRawShape> = {
   // args||{}); mọi phán quyết/fail-closed ở lõi (lib/core/boss.ts).
   bossDashboard: {},
   bossAlerts: {},
+
+  // ── W6-reg — kế toán / sổ cái / khách hàng / bảo dưỡng ──────────────────
+  // Trần zod khớp 2 tầng với core (ketoan.ts/ledger.ts validate lại mọi input
+  // — "không tin schema một phía", khuôn tonKho/thanhLyList). ID theo chuẩn
+  // VARCHAR(12) 'PREFIX-000001'; ngày YYYY-MM-DD (quy ước TEXT duy nhất).
+  // ketoan.ts — đọc/tính:
+  tinhGiaVon: {
+    vattu_id: z.string().min(1).max(12),
+    so_luong: z.number().min(0),
+  },
+  reconcileKho: {},
+  congNoList: {
+    // CHECK cong_no.loai (db/accounting.sql:95) — whitelist 2 giá trị.
+    loai: z.enum(['phai_tra', 'phai_thu']).optional(),
+    qua_han: z.boolean().optional(),
+    q: z.string().max(100).optional(),
+    // core clamp: ||500, min(.,5000) — trần zod khớp lõi (2 tầng).
+    limit: z.number().int().min(1).max(5000).optional(),
+  },
+  ledgerReport: {
+    tu_ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'tu_ngay phải dạng YYYY-MM-DD').optional(),
+    den_ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'den_ngay phải dạng YYYY-MM-DD').optional(),
+  },
+  // ketoan.ts — ghi (nghiệp vụ vượt trần: QC206 "chưa HĐ không chi", cân
+  // Nợ/Có, kỳ đóng → envelope business error ở core, không biểu diễn bằng zod):
+  vatInvoiceSave: {
+    so_hd: z.string().min(1).max(64),
+    tien_thue: z.number().min(0),
+    tien_hang: z.number().min(0).optional(),
+    ty_le: z.number().min(0).optional(),
+    ncc: z.string().max(200).optional(),
+    ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ngay phải dạng YYYY-MM-DD').optional(),
+    ref_id: z.string().max(12).optional(),
+  },
+  phieuChiCreate: {
+    cong_no_id: z.string().min(1).max(12),
+    so_tien: z.number().min(0),
+    ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ngay phải dạng YYYY-MM-DD').optional(),
+    hinh_thuc: z.string().max(20).optional(),
+    nguoi_nhan: z.string().max(100).optional(),
+    note: z.string().max(500).optional(),
+    cp_ve_phuphi: z.number().min(0).optional(),
+  },
+  kyClose: {
+    ten_ky: z.string().min(1).max(100),
+    tu_ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'tu_ngay phải dạng YYYY-MM-DD'),
+    den_ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'den_ngay phải dạng YYYY-MM-DD'),
+  },
+  kyOpen: {
+    id: z.string().min(1).max(12).optional(),
+    ten_ky: z.string().min(1).max(100).optional(),
+  },
+  // ledger.ts — ghi sổ kép + tra cứu. entries: mỗi dòng đúng 1 bên Nợ|Có > 0,
+  // tổng Nợ = tổng Có, tài khoản phải tồn tại trong `tai_khoan` (ma_so
+  // VARCHAR(16)) — mọi ràng buộc phán quyết ở core (ledgerPost envelope).
+  // nguoi KHÔNG phải input: core lấy meName(actor) (chống mạo danh ghi sổ).
+  ledgerPost: {
+    so_ct: z.string().min(1).max(64),
+    ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ngay phải dạng YYYY-MM-DD'),
+    loai_ct: z.string().min(1).max(32),
+    ref_type: z.string().max(32).optional(),
+    ref_id: z.string().max(12).optional(),
+    note: z.string().max(500).optional(),
+    entries: z
+      .array(
+        z.object({
+          tai_khoan: z.string().min(1).max(16),
+          du_no: z.number().min(0).optional(),
+          du_co: z.number().min(0).optional(),
+        })
+      )
+      .min(2)
+      .max(50),
+  },
+  ledgerList: {
+    tai_khoan: z.string().max(16).optional(),
+    tu_ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'tu_ngay phải dạng YYYY-MM-DD').optional(),
+    den_ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'den_ngay phải dạng YYYY-MM-DD').optional(),
+    loai_ct: z.string().max(32).optional(),
+    // core: ||500, min(.,5000) — trần khớp 2 tầng.
+    limit: z.number().int().min(1).max(5000).optional(),
+  },
+  // khachhang.ts — whitelist field đúng EDITABLE_FIELDS (chống column-injection:
+  // field lạ rơi vào .passthrough() nhưng core CHỈ đọc 7 khóa, không đụng SQL).
+  khachHangList: {
+    q: z.string().max(100).optional(),
+    // core clamp page>=1, limit 1..200.
+    page: z.number().int().min(1).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  },
+  khachHangGet: {
+    id: z.string().min(1).max(12),
+  },
+  khachHangSave: {
+    // id có mặt = UPDATE (lõi trim); vắng = INSERT KH-000001 qua nextId.
+    id: z.string().min(1).max(12).optional(),
+    ten: z.string().min(1).max(200),
+    sdt: z.string().max(20).optional(),
+    dia_chi: z.string().max(300).optional(),
+    email: z.string().max(100).optional(),
+    ma_so_thue: z.string().max(20).optional(),
+    la_ncc: z.boolean().optional(),
+    ghi_chu: z.string().max(1000).optional(),
+  },
+  khachHangDel: {
+    id: z.string().min(1).max(12),
+  },
+  // baoduong.ts — trần 200 khớp HANG_MUC_MAX lõi; enum ≡ CHECK trang_thai
+  // (header baoduong.ts); ngày sai format lõi chỉ bỏ về '' (zod chặn sớm hơn).
+  baoDuongTao: {
+    xe_id: z.string().min(1).max(12),
+    hang_muc: z.string().min(1).max(200),
+    ngay_du_kien: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ngay_du_kien phải dạng YYYY-MM-DD').optional(),
+    ngay_thuc_hien: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ngay_thuc_hien phải dạng YYYY-MM-DD').optional(),
+    trang_thai: z.enum(['cho', 'xong', 'bo']).optional(),
+  },
+  baoDuongList: {
+    xe_id: z.string().min(1).max(12),
+  },
 };
 
 /**
