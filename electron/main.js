@@ -7,7 +7,7 @@
 // Prod: spawn `node server.js` từ .next/standalone (PORT 3000) nếu chưa có server lắng nghe,
 //       rồi mới loadURL. kill tiến trình Next khi will-quit.
 
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, session, Menu, shell, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -156,6 +156,122 @@ function killNextServer() {
 }
 
 // ---------------------------------------------------------------------------
+// Application Menu — production-grade menu bar + keyboard shortcuts
+// ---------------------------------------------------------------------------
+function buildMenu() {
+  const template = [
+    {
+      label: "Tệp",
+      submenu: [
+        {
+          label: "Tải lại trang",
+          accelerator: "CmdOrCtrl+R",
+          click: () => mainWindow && mainWindow.reload(),
+        },
+        {
+          label: "Tải lại mạnh (bỏ cache)",
+          accelerator: "CmdOrCtrl+Shift+R",
+          click: () => mainWindow && mainWindow.webContents.reloadIgnoringCache(),
+        },
+        { type: "separator" },
+        {
+          label: "Mở DevTools",
+          accelerator: "F12",
+          click: () => mainWindow && mainWindow.webContents.toggleDevTools(),
+        },
+        { type: "separator" },
+        { role: "quit", label: "Thoát" },
+      ],
+    },
+    {
+      label: "Chỉnh sửa",
+      submenu: [
+        { role: "undo", label: "Hoàn tác" },
+        { role: "redo", label: "Làm lại" },
+        { type: "separator" },
+        { role: "cut", label: "Cắt" },
+        { role: "copy", label: "Sao chép" },
+        { role: "paste", label: "Dán" },
+        { role: "selectAll", label: "Chọn tất cả" },
+      ],
+    },
+    {
+      label: "Hiển thị",
+      submenu: [
+        {
+          label: "Phóng to",
+          accelerator: "CmdOrCtrl+=",
+          click: () => {
+            if (!mainWindow) return;
+            const z = mainWindow.webContents.getZoomLevel();
+            mainWindow.webContents.setZoomLevel(z + 0.5);
+          },
+        },
+        {
+          label: "Thu nhỏ",
+          accelerator: "CmdOrCtrl+-",
+          click: () => {
+            if (!mainWindow) return;
+            const z = mainWindow.webContents.getZoomLevel();
+            mainWindow.webContents.setZoomLevel(z - 0.5);
+          },
+        },
+        {
+          label: "Reset zoom",
+          accelerator: "CmdOrCtrl+0",
+          click: () => mainWindow && mainWindow.webContents.setZoomLevel(0),
+        },
+        { type: "separator" },
+        {
+          label: "Toàn màn hình",
+          accelerator: "F11",
+          click: () => {
+            if (!mainWindow) return;
+            mainWindow.setFullScreen(!mainWindow.isFullScreen());
+          },
+        },
+        { role: "togglefullscreen", label: "Chế độ cửa sổ" },
+      ],
+    },
+    {
+      label: "Trợ giúp",
+      submenu: [
+        {
+          label: "Về CencomOS Gara",
+          click: () => showAbout(),
+        },
+        { type: "separator" },
+        {
+          label: "Tài liệu sử dụng",
+          click: () => shell.openExternal("https://github.com/vohanh2021-a11y/cencom-v5"),
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+// About dialog
+function showAbout() {
+  const pkg = require(path.join(__dirname, "package.json"));
+  dialog.showMessageBox(mainWindow, {
+    type: "info",
+    title: "Về CencomOS Gara",
+    message: "CencomOS Gara Desktop",
+    detail: [
+      `Phiên bản: ${pkg.version || "5.2.0"}`,
+      "Hệ thống quản lý & giám sát xe đầu kéo",
+      "Built with Electron + Next.js + PostgreSQL",
+      "",
+      "© 2024 CencomOS Team",
+    ].join("\n"),
+    buttons: ["Đóng"],
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
 function createWindow() {
@@ -170,7 +286,6 @@ function createWindow() {
     minHeight: 700,
     title: "CencomOS Gara",
     show: false,
-    autoHideMenuBar: true,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: "#0b1220",
     webPreferences: {
@@ -248,7 +363,8 @@ app.on("window-all-closed", () => {
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+  createWindow();
+  buildMenu();
     mainWindow.loadURL(APP_URL);
   }
 });

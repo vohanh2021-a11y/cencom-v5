@@ -15,6 +15,7 @@ interface NavProps {
 interface NavItem {
   label: string;
   href: string;
+  icon: string;
 }
 
 const MENU: Record<string, NavItem[]> = {
@@ -31,46 +32,40 @@ const MENU: Record<string, NavItem[]> = {
   // header xuong.ts). KETOAN KHÔNG CÓ LINK — không phải vì UI tự suy diễn mà
   // vì core trả 403: để link sẽ bấm-vào-màn-'Không-có-quyền' vô nghĩa.
   giamdoc: [
-    { label: 'Dashboard', href: '/' },
-    { label: 'SC', href: '/sc' },
-    { label: 'Bảng xe', href: '/sc/kanban' },
-    { label: 'Báo giá', href: '/baogia' },
-    { label: 'Hồ sơ', href: '/hoso' },
-    { label: 'Kho', href: '/kho' },
-    { label: 'Mua sắm', href: '/kho/dm' },
+    { label: 'Dashboard', href: '/', icon: '📊' },
+    { label: 'SC', href: '/sc', icon: '📋' },
+    { label: 'Bảng xe', href: '/sc/kanban', icon: '🚛' },
+    { label: 'Báo giá', href: '/baogia', icon: '💰' },
+    { label: 'Hồ sơ', href: '/hoso', icon: '📁' },
+    { label: 'Kho', href: '/kho', icon: '🔧' },
+    { label: 'Mua sắm', href: '/kho/dm', icon: '🛒' },
   ],
   kho: [
-    { label: 'Kho', href: '/kho' },
-    { label: 'Mua sắm', href: '/kho/dm' },
-    { label: 'Xe', href: '/xe' },
-    // W3.8: kho có sc.xem trong MATRIX (lib/perm.ts) → dashboardAll lõi cho
-    // phép → hiện bảng kanban (menu kho trước đây không có SC list, giữ
-    // nguyên — chỉ thêm đúng link board mới theo task).
-    { label: 'Bảng xe', href: '/sc/kanban' },
+    { label: 'Kho', href: '/kho', icon: '🔧' },
+    { label: 'Mua sắm', href: '/kho/dm', icon: '🛒' },
+    { label: 'Xe', href: '/xe', icon: '🚛' },
+    { label: 'Bảng xe', href: '/sc/kanban', icon: '📊' },
   ],
   xuong: [
-    { label: 'SC', href: '/sc' },
-    { label: 'Bảng xe', href: '/sc/kanban' },
-    { label: 'Mua sắm', href: '/kho/dm' },
-    { label: 'Xe', href: '/xe' },
+    { label: 'SC', href: '/sc', icon: '📋' },
+    { label: 'Bảng xe', href: '/sc/kanban', icon: '🚛' },
+    { label: 'Mua sắm', href: '/kho/dm', icon: '🛒' },
+    { label: 'Xe', href: '/xe', icon: '🚛' },
   ],
   ketoan: [
-    // KHÔNG thêm 'Bảng xe': dashboardAll chặn cứng role ketoan (403 trong
-    // lib/core/xuong.ts, port v3.6 dòng 122–124) — ẩn link là nhất quán với
-    // phán quyết server, tránh bấm vào màn 'Không có quyền'.
-    { label: 'Báo giá', href: '/baogia' },
-    { label: 'Hồ sơ', href: '/hoso' },
-    { label: 'SC', href: '/sc' },
+    { label: 'Báo giá', href: '/baogia', icon: '💰' },
+    { label: 'Hồ sơ', href: '/hoso', icon: '📁' },
+    { label: 'SC', href: '/sc', icon: '📋' },
   ],
   admin: [
-    { label: 'Dashboard', href: '/' },
-    { label: 'SC', href: '/sc' },
-    { label: 'Bảng xe', href: '/sc/kanban' },
-    { label: 'Báo giá', href: '/baogia' },
-    { label: 'Hồ sơ', href: '/hoso' },
-    { label: 'Kho', href: '/kho' },
-    { label: 'Mua sắm', href: '/kho/dm' },
-    { label: 'Xe', href: '/xe' },
+    { label: 'Dashboard', href: '/', icon: '📊' },
+    { label: 'SC', href: '/sc', icon: '📋' },
+    { label: 'Bảng xe', href: '/sc/kanban', icon: '🚛' },
+    { label: 'Báo giá', href: '/baogia', icon: '💰' },
+    { label: 'Hồ sơ', href: '/hoso', icon: '📁' },
+    { label: 'Kho', href: '/kho', icon: '🔧' },
+    { label: 'Mua sắm', href: '/kho/dm', icon: '🛒' },
+    { label: 'Xe', href: '/xe', icon: '🚛' },
   ],
 };
 
@@ -104,7 +99,7 @@ export default function Nav({ role, name }: NavProps) {
   };
 
   const linkCls = (href: string) =>
-    'block rounded px-3 py-2 text-sm font-medium transition-colors ' +
+    'flex items-center rounded px-3 py-2 text-sm font-medium transition-colors ' +
     (isActive(href)
       ? 'bg-blue-50 text-blue-700'
       : 'text-slate-600 hover:bg-slate-100');
@@ -166,10 +161,14 @@ export default function Nav({ role, name }: NavProps) {
         aria-label="Điều hướng"
       >
         <div className="mb-6">
-          <div className="text-xs font-semibold uppercase text-slate-400">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">🚛</span>
+            <span className="font-bold text-base" style={{ color: 'var(--c-primary)' }}>CencomOS</span>
+          </div>
+          <div className="text-xs font-semibold uppercase" style={{ color: 'var(--c-ink-muted)' }}>
             {ROLE_LABEL[role] ?? role}
           </div>
-          <div className="mt-1 font-semibold text-slate-800">{name}</div>
+          <div className="mt-1 font-semibold" style={{ color: 'var(--c-ink)' }}>{name}</div>
         </div>
 
         <div className="space-y-1">
@@ -180,6 +179,7 @@ export default function Nav({ role, name }: NavProps) {
               onClick={() => setOpen(false)}
               className={linkCls(item.href)}
             >
+              <span className="mr-2 text-base">{item.icon}</span>
               {item.label}
             </Link>
           ))}
