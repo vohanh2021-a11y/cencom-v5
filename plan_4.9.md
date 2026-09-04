@@ -249,7 +249,7 @@ CREATE TABLE IF NOT EXISTS cache_sc    (id TEXT PRIMARY KEY, xe_id TEXT, trang_t
 
 1. **Port HUB PG**: 5433 (tránh dev) hay 5432 (chuẩn)? Em đề xuất **5433**.
 2. **Tên file Spoke**: `CencomOS Gara Spoke Setup 5.4.0.exe` OK?
-3. **Model mặc định HUB**: `mimo-v2.5-flash-free` hay để trống bắt nhập?
+3. **Model mặc định HUB**: `mimo-v2.5` qua **opencode zen** (`https://api.opencode.ai/zen/v1`) — api.b.ai không có model phù hợp (đã chuyển `settings/ai` + `lib/ai-config.ts` sang provider `zen`).
 
 Chốt 3 điểm trên là em cho swarm chạy ngay.
 
