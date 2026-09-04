@@ -252,3 +252,85 @@ CREATE TABLE IF NOT EXISTS cache_sc    (id TEXT PRIMARY KEY, xe_id TEXT, trang_t
 3. **Model mặc định HUB**: `mimo-v2.5-flash-free` hay để trống bắt nhập?
 
 Chốt 3 điểm trên là em cho swarm chạy ngay.
+
+---
+
+## 9. Checklist 100% — Từng bước ra sản phẩm (bổ sung 04.09, chốt Hub-and-Spoke)
+
+> Mỗi bước có **Task ID, việc cụ thể, file, cách kiểm thử, tiêu chí PASS**. Làm tuần tự 9.1→9.9, mỗi bước xong phải PASS mới sang bước sau.
+
+### 9.1 Tải Portable PG cho HUB (30 phút)
+- **Task A1.1**: Chạy `electron-hub/scripts/fetch-pg.ps1` — tải `postgresql-16.8-win64-binaries.zip` từ enterprisedb, giải nén vào `electron-hub/pg-portable/` (bin/lib/share)
+- **Verify**: `Test-Path electron-hub/pg-portable/bin/pg_ctl.exe` → True, `dir pg-portable` ~120MB
+- **PASS**: `ls pg-portable/bin` có 15 exe
+
+### 9.2 Build & test Hub all-in-one trên máy sạch (1h)
+- **Task A1.2**: `cd gara_reconstruction_v5; npm run build` → `cd ../electron-hub; npm install; npm run build` → ra `CencomOS Gara Hub Setup 5.4.0.exe` (~280MB khi có pg-portable, hiện 80MB khi chưa)
+- **Task A1.3**: Cài Hub trên Win 10/11 VM sạch (chưa có PG) → mở app → kiểm tra `%APPDATA%/CencomOS/hub-data/PG_VERSION` tồn tại → login `admin/cencom@123` → tạo 1 SC → `tonKho` hiện
+- **Verify**: `curl http://127.0.0.1:3000/api/health` → `{"ok":true,"version":"5.4.0"}` + `pg_isready -p 5433` OK
+- **PASS**: Hub chạy độc lập không cần Docker/Internet
+
+### 9.3 Spoke thin + offline queue (1h)
+- **Task B1/C1**: `electron-spoke` đã build `76.4MB` — kiểm tra `spoke-queue.json` tại `%APPDATA%/CencomOS/spoke-queue.json` sau khi Spoke nhập 1 SC offline
+- **Task C2**: Test rút dây mạng → nhập SC → badge `● Offline (1 chưa đồng bộ)` hiện (SyncStatus.tsx + spokeAPI.queueList)
+- **Verify**: `cat %APPDATA%/CencomOS/spoke-queue.json` → 1 item `status:pending`
+- **PASS**: Spoke nhập được khi offline
+
+### 9.4 Sync 2 chiều có xác nhận (1.5h)
+- **Task D1**: HUB `app/api/sync/push` + `confirm` + `pull` đã code — test bằng 2 Spoke mock
+- **Verify**:
+  ```powershell
+  # Spoke 1 push
+  curl -b sid http://HUB:3000/api/sync/push -d '{"items":[{"id":"SC-TEST001","loai":"scCreate","payload":{"xe_id":"XE-000001"}}]}'
+  # → {accepted:1, conflicts:0} → confirm → HUB SELECT * FROM sc WHERE id='SC-TEST001' → có
+  # Spoke 2 push trùng ID → conflicts:1 → dialog “ID đã tồn tại” → user Bỏ
+  ```
+- **PASS**: HUB thấy đủ SC, Spoke `status:synced`, `sync_log` có 2 dòng
+
+### 9.5 AI Settings + Chat trong phạm vi data (1h)
+- **Task E1/F1/F2**: `settings/ai` + `api/ai/chat` + `AiChatDock` đã code
+- **Verify**: HUB → Cài đặt → AI → nhập `baseURL https://api.b.ai/v1` + key + `mimo-v2.5-flash-free` → Test → `OK` → Chat “Tồn kho thiếu gì?” → trả lời có số `ton < ton_min` thật (không hallucinate), check `ai_conversations` có 1 dòng
+- **PASS**: Chat chỉ trả lời từ data, ngoài phạm vi thì từ chối
+
+### 9.6 Vision hóa đơn viết tay (45 phút)
+- **Task G1**: `VisionUpload` đã gắn `baogia/page.tsx` case 1 + `api/ai/vision`
+- **Verify**: Upload ảnh hóa đơn viết tay (chụp bằng đt) → `extracted: {ncc, items:[{ten, so_luong, don_gia}]}` → form tự điền → Save → `baogia` + `baogia_chitiet` có dòng mới
+- **PASS**: Vision JSON đúng, user sửa được trước khi Save
+
+### 9.7 MCP LAN cho trưởng phòng (30 phút)
+- **Verify**: Máy trưởng phòng (không cài Hub) → `MCP_API_KEY` trỏ `http://HUB_IP:3001/mcp` → `opencode mcp list` hoặc `curl -H "Authorization: Bearer $key" http://HUB:3001/mcp` → `tools/call dashboardAll` → `xe:42`
+- **PASS**: MCP đọc data HUB qua LAN, Spoke không cần DB riêng
+
+### 9.8 Backup/Restore (30 phút)
+- **Task A2**: `settings/backup` + `app/api/backup` đã code — test nút Sao lưu
+- **Verify**: HUB → Sao lưu → file `%APPDATA%/CencomOS/backup/cencom-YYYYMMDD.dump` tồn tại → Xóa 1 SC → Khôi phục → SC quay lại
+- **PASS**: Backup/restore 1-click
+
+### 9.9 Kiểm thử tổng + bàn giao (1.5h)
+- **Verify**:
+  1. `cd gara_reconstruction_v5; npx tsc --noEmit` → 0
+  2. `npm run test:conformance` → 777/777 (isolated, DB 5432)
+  3. `Onpremise/scripts/smoke_onpremise.mjs` (HUB Docker) → 6/6 PASS
+  4. `Onpremise/scripts/smoke_hub_spoke.mjs` (mới) → Hub+Spoke LAN 2 máy PASS
+  5. 2 installer `Hub 280MB` + `Spoke 76MB` + `README LAN` + `CHANGELOG 5.4.0` + tag `v5.4.0`
+- **PASS**: Đủ 5 tiêu chí Definition of Done (section 5) → **100% ra sản phẩm**
+
+---
+
+## 10. Phân công & thứ tự triển khai (để đạt 100%)
+
+| Thứ tự | Task ID | Người làm | Ước lượng | Blocker |
+|---|---|---|---|---|
+| 1 | A1.1 fetch-pg | Hub builder | 30m | Không |
+| 2 | A1.2 build Hub | Hub builder | 1h | Cần 1 |
+| 3 | C1+D1 song song | Sync team | 1.5h | Cần 2 |
+| 4 | E1+F1 song song | AI team | 1h | Không |
+| 5 | G1 Vision | AI team | 45m | Cần 4 |
+| 6 | C2 Spoke UI | Spoke team | 1h | Cần 3 |
+| 7 | A2 Backup | Hub builder | 30m | Cần 2 |
+| 8 | 9.4-9.8 test LAN | QA (1 Hub + 2 Spoke vật lý) | 1.5h | Cần 2-7 |
+| 9 | 9.9 tổng + tag | Release | 1h | Cần 8 |
+
+**Tổng còn lại**: ~8h thực thi (đã trừ 29h đã làm Wave1-3). Chạy swarm 2-3 agent song song → **1 ngày** là xong.
+
+> **Báo cáo triển khai**: Sau khi xong 9.1→9.9, em sẽ gửi anh **báo cáo 1 trang** gồm: 2 link installer, video LAN 2 máy, log `conformance + smoke`, và `git tag v5.4.0`.
