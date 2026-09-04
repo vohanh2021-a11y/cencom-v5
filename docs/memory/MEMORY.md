@@ -58,5 +58,7 @@
   converter UTF8(no-BOM) khi sửa file máy khách đọc = JSON.
 
 ## Tags & Versions
-- `v4.0.0` → `v5.0.0-beta` → `v5.0.0` → `v5.1.0` → `v5.2.0` → 5.3.0 (chưa tag)
+- `v4.0.0` → `v5.0.0-beta` → `v5.0.0` → `v5.1.0` → `v5.2.0` → `v5.3.0` → **5.4.0 (Hub-and-Spoke + AI, tag tại HEAD)**
+- AI provider mặc định: **opencode zen + mimo-v2.5** (api.b.ai thiếu model phù hợp)
+- Docker Desktop Windows có thể treo khi build dài (npm ci) → rebuild detached qua WMI + log, up -d lại sau khi daemon hồi; sau restart engine phải recreate nginx (port-forward 18443 chết) + `docker start cencom_v5_pg`
 - Branch `main` (clean), `draft/gd4-gd5-v4` (két sắt 103 file)
