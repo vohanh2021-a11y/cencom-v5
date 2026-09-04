@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/specs/2.0.0.html).
 
+## v5.4.0 - 2026-09-04 (Hub-and-Spoke + AI nhúng, plan_4.9)
+
+### Added
+- **electron-hub 5.4.0** (all-in-one ~113MB khi có PG): portable PG 16 lifecycle
+  (`ensureHubDb`/`pg_ctl`, data `%APPDATA%/CencomOS/hub-data`, port 5433),
+  `pg-portable/README.md` + `scripts/fetch-pg.ps1` (binary gitignore, tải riêng).
+- **electron-spoke 5.4.0** (thin ~76MB): nhập IP HUB, `spokeAPI`, queue file JSON
+  offline (`spoke-queue.json`), badge `SyncStatus` + nút Đồng bộ.
+- **Sync engine**: `POST /api/sync/push` (Zod+RBAC, trả accepted/conflicts),
+  `POST /api/sync/confirm`, `GET /api/sync/pull`; bảng `sync_devices/sync_log`.
+- **AI nhúng tại HUB**: `lib/ai-config.ts` (AES-256-GCM qua SESSION_SECRET),
+  `lib/ai.ts` (system prompt khóa phạm vi + tool-calling 81 tools),
+  `POST /api/ai/chat` (lưu `ai_conversations/messages`), `GET/POST /api/ai/config`,
+  `POST /api/ai/test`, trang `settings/ai` (provider **zen** + `mimo-v2.5` mặc
+  định — api.b.ai không có model phù hợp), dock `AiChat` toàn app.
+- **Vision hóa đơn**: `POST /api/ai/vision` (base64 → vision model → JSON
+  `{ncc, ngay, items}`), `VisionUpload` gắn form báo giá, job `ai_vision_jobs`.
+- **Backup 1-click**: `POST /api/backup` (`pg_dump -Fc`), trang `settings/backup`.
+
+### Fixed
+- Health `/api/health` đọc version tĩnh từ `package.json` (hết '5.0.0' ảo khi
+  spawn `node server.js`); `mcp-server/env.ts` không đè `DATABASE_URL` của
+  Docker compose (onlyIfMissing) — on-prem mcp hết crash `127.0.0.1:5432`.
+- `Set-Content UTF8` ghi BOM làm vỡ webpack JSON — dùng UTF8 no-BOM.
+
+### Verification
+- `tsc --noEmit` 0; `conformance` **839/839 (28 suites, EXIT 0)**;
+  `smoke_onpremise.mjs` **6/6 PASS** qua nginx HTTPS (web 5.4.0, MCP 81 tools);
+  `opencode mcp list` ✓ cencom-gara connected; video `hub-spoke_with_voice.webm`.
+
 ## v5.3.0 - 2026-09-04
 
 ### Added
