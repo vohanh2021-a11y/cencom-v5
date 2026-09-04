@@ -8,6 +8,8 @@ import WorkspaceSelector from '@/components/WorkspaceSelector';
 import EditToggle from '@/components/EditToggle';
 import ThemeToggle from '@/components/ThemeToggle';
 import ReadOnlyGuard from '@/components/ReadOnlyGuard';
+import AiChatDock from '@/components/AiChatDock';
+import SyncStatus from '@/components/SyncStatus';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -66,6 +68,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             </main>
           </div>
         </div>
+        <AiChatDock />
+        <SyncStatus />
       </WorkspaceProvider>
     </ThemeProvider>
   );

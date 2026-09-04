@@ -417,3 +417,49 @@ BEGIN
   CREATE INDEX IF NOT EXISTS gix_sc_id_trgm     ON sc USING gin (id gin_trgm_ops);
   CREATE INDEX IF NOT EXISTS gix_dm_id_trgm     ON dm USING gin (id gin_trgm_ops);
 END $$;
+
+-- ============ PLAN 4.9 — Hub-and-Spoke + AI (6 bảng mới) ============
+CREATE TABLE IF NOT EXISTS sync_devices (
+  id         VARCHAR(12) PRIMARY KEY,
+  ten_may    TEXT NOT NULL,
+  ip_last    TEXT DEFAULT '',
+  last_seen  TEXT,
+  trang_thai VARCHAR(10) DEFAULT 'online' CHECK (trang_thai IN ('online','offline')),
+  deleted_at TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_syncdev_status ON sync_devices(trang_thai) WHERE deleted_at='';
+
+CREATE TABLE IF NOT EXISTS sync_log (
+  id         BIGSERIAL PRIMARY KEY,
+  device_id  VARCHAR(12) REFERENCES sync_devices(id),
+  huong      VARCHAR(10) CHECK (huong IN ('push','pull','confirm')),
+  loai       TEXT,
+  ref_id     VARCHAR(12),
+  trang_thai VARCHAR(10) CHECK (trang_thai IN ('ok','conflict','failed')),
+  chi_tiet   TEXT,
+  ts         TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_synclog_device ON sync_log(device_id, ts DESC);
+
+CREATE TABLE IF NOT EXISTS ai_conversations (
+  id         VARCHAR(12) PRIMARY KEY,
+  user_id    VARCHAR(12) REFERENCES users(id),
+  tieu_de    TEXT DEFAULT '',
+  created_at TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id              BIGSERIAL PRIMARY KEY,
+  conversation_id VARCHAR(12) REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  role            VARCHAR(10) CHECK (role IN ('user','assistant','system')),
+  content         TEXT,
+  tool_calls      TEXT,
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS ai_vision_jobs (
+  id         VARCHAR(12) PRIMARY KEY,
+  baogia_id  VARCHAR(12) REFERENCES baogia(id),
+  anh_path   TEXT,
+  extracted  TEXT,
+  trang_thai VARCHAR(10) DEFAULT 'cho' CHECK (trang_thai IN ('cho','xong','loi')),
+  created_at TEXT DEFAULT ''
+);

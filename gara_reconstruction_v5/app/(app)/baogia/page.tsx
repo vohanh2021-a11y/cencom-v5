@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApi, getCurrentUser } from '@/lib/hooks/useApi';
 import type { Actor } from '@/lib/types';
+import VisionUpload from '@/components/VisionUpload';
 
 interface ScRow {
   id: string;
@@ -296,6 +297,7 @@ export default function BaogiaPage() {
       case 1:
         return (
           <div className="space-y-3">
+            <VisionUpload onExtract={(data)=> setForm((f:any)=> ({...f, ncc: data.ncc || f.ncc, ngay: data.ngay || f.ngay, items: data.items?.map((it:any)=> ({ ten: it.ten, so_luong: it.so_luong, don_gia: it.don_gia })) || f.items}))} />
             <label className="block text-sm font-medium text-slate-700">
               Tên nhà cung cấp (NCC)
             </label>

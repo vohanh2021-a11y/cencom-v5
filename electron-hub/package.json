@@ -1,0 +1,61 @@
+{
+  "name": "cencom-gara-hub",
+  "version": "5.4.0",
+  "description": "CencomOS Gara Hub — All-in-One (Electron + Next.js + Portable PG)",
+  "main": "main.js",
+  "private": true,
+  "author": "Cencom",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:next\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev:next": "npm run dev --prefix ../gara_reconstruction_v5",
+    "start": "electron .",
+    "start:prod": "cross-env NODE_ENV=production electron .",
+    "build": "electron-builder --win --x64",
+    "build:all": "electron-builder --win --x64 --publish never",
+    "lint": "echo \"No lint for electron\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^32.3.3",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.cencom.gara.hub",
+    "productName": "CencomOS Gara Hub",
+    "copyright": "Copyright Â© 2026 Cencom",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "../gara_reconstruction_v5/.next/standalone/**/*",
+      "../gara_reconstruction_v5/.next/static/**/*",
+      "../gara_reconstruction_v5/public/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../gara_reconstruction_v5/.next/standalone",
+        "to": "standalone"
+      },
+      {
+        "from": "pg-portable",
+        "to": "pg-portable"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "../gara_reconstruction_v5/public/icon-512.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
+

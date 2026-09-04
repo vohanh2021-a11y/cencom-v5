@@ -1,0 +1,43 @@
+{
+  "name": "cencom-gara-spoke",
+  "version": "5.4.0",
+  "description": "CencomOS Gara Spoke — Thin Client (LAN only, offline queue)",
+  "main": "main.js",
+  "private": true,
+  "author": "Cencom",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.2.2"
+  },
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.cencom.gara.spoke",
+    "productName": "CencomOS Gara Spoke",
+    "copyright": "Copyright © 2026 Cencom",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "db/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "../gara_reconstruction_v5/public/icon-512.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}
