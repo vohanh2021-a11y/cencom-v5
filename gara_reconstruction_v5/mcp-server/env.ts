@@ -54,9 +54,10 @@ function loadEnv(): void {
   const mcpEnvPath = path.join(__dirname, '.env.mcp');
   const rootEnvPath = path.join(__dirname, '..', '.env.local');
 
-  // Load .env.mcp first (if exists)
+  // Load .env.mcp first (if exists) — onlyIfMissing=true để Docker
+  // compose env (DATABASE_URL=db:5432) không bị đè bởi file dev localhost
   if (fs.existsSync(mcpEnvPath)) {
-    loadEnvFile(mcpEnvPath);
+    loadEnvFile(mcpEnvPath, true);
   }
 
   // Fallback to root .env.local for missing keys
