@@ -11,6 +11,10 @@
 import { NextResponse } from 'next/server';
 import { q } from '../../../lib/db';
 import { createLogger } from '../../../lib/logger';
+// Version ĐỌC TĨNH từ package.json (resolveJsonModule bật): trước đây lấy
+// npm_package_version — RỖNG khi chạy `node server.js` trực tiếp
+// (electron standalone spawn + Docker CMD) → health mãi báo '5.0.0' ảo.
+import pkg from '../../../package.json';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +24,7 @@ const START_TIME = Date.now();
 
 export async function GET() {
   const uptimeSec = Math.floor((Date.now() - START_TIME) / 1000);
-  const version = process.env.npm_package_version || '5.0.0';
+  const version = (pkg as { version?: string }).version || '0.0.0';
   const ts = new Date().toISOString();
 
   try {

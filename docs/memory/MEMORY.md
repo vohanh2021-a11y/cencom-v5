@@ -28,7 +28,8 @@
 
 ## RPC & MCP
 - 85 fn trong `FN_LIST` (strip comment) — tên fn = tên MCP tool
-- 55 MCP tools (dynamic, không hardcode count)
+- Tools **động từ FN_LIST** (04.09 boot = **81 tools** khi write allowlist bật;
+  read-only mặc định ít hơn — ĐỪNG hardcode con số trong docs khi bàn giao)
 - 4 resources: `sc://`, `xe://`, `dm://`, `kho://tai-san`
 - 2 prompts: `ho-so-sc-chuan-qc206`, `quy-trinh-mua-sam`, `quy-trinh-xuong`
 - `MCP_WRITE_TOOLS=''` → read-only mặc định, 18 write tools cần bật explicit
@@ -49,6 +50,12 @@
 - **Electron**: `electron/main.js` → NSIS installer 84MB (cần rebuild sau menu-bar)
 - **CI**: `.github/workflows/ci.yml` — lint→tsc→test→build→docker.
 - **PWA**: icon 192/512, manifest.json, sw.js, PwaRegister.tsx
+
+## Windows pitfall (LẶNG QUÊN 2 LẦN)
+- `Set-Content`/`Out-File -Encoding UTF8` (PS 5.1) ghi **BOM EF BB BF** → JSON
+  import/webpack/seed reader nổ `Unexpected token '﻿'` (đã gặp: seed_xe.json
+  UTF-16, health import package.json). LUÔN dùng `[IO.File]::WriteAllText` hoặc
+  converter UTF8(no-BOM) khi sửa file máy khách đọc = JSON.
 
 ## Tags & Versions
 - `v4.0.0` → `v5.0.0-beta` → `v5.0.0` → `v5.1.0` → `v5.2.0` → 5.3.0 (chưa tag)
