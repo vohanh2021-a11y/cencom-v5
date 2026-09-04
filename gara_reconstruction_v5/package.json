@@ -1,6 +1,6 @@
 {
   "name": "gara_reconstruction_v5",
-  "version": "5.3.0",
+  "version": "5.4.0",
   "private": true,
   "description": "CencomOS Gara v5.0 GREENFIELD â€” Next.js + PostgreSQL thuáº§n (khÃ´ng Supabase), auth tá»± viáº¿t, role-centric.",
   "scripts": {
