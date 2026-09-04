@@ -103,3 +103,14 @@ backups/
 /serve.pid
 /standalone-build.*
 /temp_check.*
+# plan 4.9 Hub portable PG (132MB, không commit binary)
+electron-hub/pg-portable/bin/
+electron-hub/pg-portable/lib/
+electron-hub/pg-portable/share/
+electron-hub/pg-portable/include/
+# Spoke lock (t? sinh)
+electron-spoke/package-lock.json
+electron-hub/pg-portable/pgAdmin 4/
+electron-hub/pg-portable/doc/
+electron-hub/pg-portable/StackBuilder/
+
