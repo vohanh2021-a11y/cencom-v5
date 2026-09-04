@@ -18,8 +18,9 @@ const PORT = 3000;
 const WAIT_TRIES = 10;
 const WAIT_DELAY_MS = 1000;
 
-// Hub portable PG
-const PG_PORT = 5433;
+// Hub portable PG — PORT 5433 mặc định (máy KT trưởng không có gì khác);
+// máy dev có Docker db chiếm 5433 thì set HUB_PG_PORT=5434 khi chạy thử.
+const PG_PORT = Number(process.env.HUB_PG_PORT || 5433) || 5433;
 function pgDataDir() {
   return path.join(app.getPath("userData"), "hub-data");
 }
@@ -34,7 +35,7 @@ function pgIsAvailable() {
 }
 
 const isProd = () =>
-  process.env.NODE_ENV === "production" || app.isPackaged;
+  String(process.env.NODE_ENV || "").trim() === "production" || app.isPackaged;
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
@@ -61,7 +62,13 @@ if (!gotLock) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Probe HTTP 1 lần: true nếu có server trả về (bất kỳ status < 500).
+// Boot log bền vững (KT trưởng gửi file này khi cần hỗ trợ)
+function bootLog(msg) {
+  try {
+    const f = path.join(app.getPath("userData"), "hub-boot.log");
+    fs.appendFileSync(f, `[${new Date().toISOString()}] ${msg}\n`);
+  } catch (_) {}
+}
 function probeServer() {
   return new Promise((resolve) => {
     const req = http.get(APP_URL, (res) => {
@@ -170,6 +177,7 @@ function stopHubDb() {
 function startNextServer() {
   const root = standaloneRoot();
   const serverJs = path.join(root, "server.js");
+  bootLog(`startNextServer root=${root} exists=${fs.existsSync(serverJs)} pgAvail=${pgIsAvailable()} dburl=${process.env.DATABASE_URL ? "env" : "auto"}`);
   if (!fs.existsSync(serverJs)) {
     console.error(`[gara] Không tìm thấy Next standalone tại: ${serverJs}`);
     return false;
@@ -190,7 +198,12 @@ function startNextServer() {
   try {
     nextProcess = spawn(process.execPath, [serverJs], {
       cwd: standaloneCwd(root),
-      env,
+      env: {
+        ...env,
+        // BẮT BUỘC: chạy electron.exe như node thuần — thiếu là server.js
+        // khởi động trong runtime Electron (treo/crash thầm lặng, không listen).
+        ELECTRON_RUN_AS_NODE: "1",
+      },
       // ELECTRON_RUN_AS_NODE: chạy electron.exe ở chế độ Node thuần (không cần node hệ thống)
       stdio: ["ignore", "inherit", "inherit"],
       windowsHide: true,
@@ -402,8 +415,10 @@ function showErrorPage(message) {
 // App lifecycle
 // ---------------------------------------------------------------------------
 async function bootstrap() {
+  bootLog(`bootstrap isProd=${isProd()} NODE_ENV=${JSON.stringify(process.env.NODE_ENV)} packaged=${app.isPackaged}`);
   // Hub: đảm bảo PG portable chạy trước khi spawn Next
   await ensureHubDb();
+  bootLog("ensureHubDb done");
 
   // Security cứng: chặn điều hướng ra ngoài origin app + chặn window.open tuỳ tiện.
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
@@ -415,6 +430,7 @@ async function bootstrap() {
 
   if (isProd()) {
     const up = await probeServer();
+    bootLog(`probe :3000 up=${up}`);
     if (!up && !startNextServer()) {
       showErrorPage("Không khởi động được server ứng dụng (thiếu .next/standalone/server.js).");
       return;
