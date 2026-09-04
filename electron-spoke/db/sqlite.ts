@@ -1,51 +1,36 @@
-import Database from "better-sqlite3";
+// Spoke queue — dùng file JSON thay better-sqlite3 để tránh native build
+// File: %APPDATA%/CencomOS/spoke-queue.json
 import path from "path";
 import fs from "fs";
 import { app } from "electron";
 
-let db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (db) return db;
+function queueFile() {
   const dir = app ? app.getPath("userData") : path.join(process.cwd(), ".spoke-data");
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, "spoke.db");
-  db = new Database(file);
-  db.pragma("journal_mode = WAL");
-  migrate(db);
-  return db;
+  return path.join(dir, "spoke-queue.json");
 }
 
-function migrate(db: Database.Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sync_queue (
-      id TEXT PRIMARY KEY,
-      loai TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK (status IN ('pending','conflict','synced','failed')),
-      retry INTEGER DEFAULT 0,
-      created_at TEXT,
-      synced_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_sq_status ON sync_queue(status);
-    CREATE TABLE IF NOT EXISTS cache_vattu (id TEXT PRIMARY KEY, ten TEXT, ton REAL, gia REAL, don_vi TEXT);
-    CREATE TABLE IF NOT EXISTS cache_xe (id TEXT PRIMARY KEY, bien_so TEXT, chu_xe TEXT);
-    CREATE TABLE IF NOT EXISTS cache_sc (id TEXT PRIMARY KEY, xe_id TEXT, trang_thai TEXT, ngay_tao TEXT, tong REAL);
-  `);
+function readQueue(): any[] {
+  try {
+    if (fs.existsSync(queueFile())) return JSON.parse(fs.readFileSync(queueFile(), "utf8"));
+  } catch {}
+  return [];
+}
+function writeQueue(q: any[]) {
+  fs.writeFileSync(queueFile(), JSON.stringify(q, null, 2));
 }
 
 export function queuePush(loai: string, payload: any): string {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const d = getDb();
-  d.prepare("INSERT INTO sync_queue (id, loai, payload, status, created_at) VALUES (?,?,?,?,?)")
-    .run(id, loai, JSON.stringify(payload), "pending", new Date().toISOString());
+  const q = readQueue();
+  q.push({ id, loai, payload: JSON.stringify(payload), status: "pending", created_at: new Date().toISOString() });
+  writeQueue(q);
   return id;
 }
-
-export function queueList() {
-  return getDb().prepare("SELECT * FROM sync_queue ORDER BY created_at DESC").all();
-}
-
+export function queueList() { return readQueue(); }
 export function queueMark(id: string, status: string) {
-  getDb().prepare("UPDATE sync_queue SET status=?, synced_at=? WHERE id=?").run(status, new Date().toISOString(), id);
+  const q = readQueue();
+  const item = q.find((x: any) => x.id === id);
+  if (item) { item.status = status; item.synced_at = new Date().toISOString(); writeQueue(q); }
 }
+export function getDb() { return { prepare: () => ({ all: queueList, run: () => {} }) } as any; }
