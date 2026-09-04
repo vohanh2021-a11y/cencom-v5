@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
       "INSERT INTO sync_log(device_id, huong, loai, ref_id, trang_thai, chi_tiet) VALUES($1,'push',$2,$3,'ok',$4)",
       [device, item.loai, item.id, JSON.stringify(item)]
     ).catch(() => {});
+  }
 
   for (const c of conflicts) {
     if (c.reason === "Đã đồng bộ trước đó") continue; // không spam log cho idempotent replay
