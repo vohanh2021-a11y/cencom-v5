@@ -419,8 +419,10 @@ BEGIN
 END $$;
 
 -- ============ PLAN 4.9 — Hub-and-Spoke + AI (6 bảng mới) ============
+-- sync_devices.id TEXT (KHÔNG VARCHAR(12)): id do Spoke tự sinh (uuid) hoặc
+-- HUB cấp SPK-000001 — push tự đăng ký (upsert) nên không giới hạn độ dài
 CREATE TABLE IF NOT EXISTS sync_devices (
-  id         VARCHAR(12) PRIMARY KEY,
+  id         TEXT PRIMARY KEY,
   ten_may    TEXT NOT NULL,
   ip_last    TEXT DEFAULT '',
   last_seen  TEXT,
@@ -431,10 +433,12 @@ CREATE INDEX IF NOT EXISTS idx_syncdev_status ON sync_devices(trang_thai) WHERE 
 
 CREATE TABLE IF NOT EXISTS sync_log (
   id         BIGSERIAL PRIMARY KEY,
-  device_id  VARCHAR(12) REFERENCES sync_devices(id),
+  device_id  TEXT REFERENCES sync_devices(id),
   huong      VARCHAR(10) CHECK (huong IN ('push','pull','confirm')),
   loai       TEXT,
-  ref_id     VARCHAR(12),
+  -- ref_id TEXT (KHÔNG VARCHAR(12)): id client tự sinh (uuid) dài tùy ý,
+  -- không theo scheme PREFIX-000001 của server
+  ref_id     TEXT,
   trang_thai VARCHAR(10) CHECK (trang_thai IN ('ok','conflict','failed')),
   chi_tiet   TEXT,
   ts         TIMESTAMPTZ DEFAULT now()
