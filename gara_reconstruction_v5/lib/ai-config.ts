@@ -6,8 +6,8 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 
 export interface AiProviderConfig {
-  provider: "openai" | "anthropic" | "custom";
-  baseURL: string; // https://api.b.ai/v1
+  provider: "openai" | "anthropic" | "custom" | "zen";
+  baseURL: string; // https://zen.opencode.ai/v1  (opencode zen, mimo 2.5)
   apiKey: string;
   model: string; // mimo-v2.5-flash-free
 }

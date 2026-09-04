@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 
 export default function AiSettingsPage() {
-  const [form, setForm] = useState({ provider: "custom", baseURL: "https://api.b.ai/v1", apiKey: "", model: "mimo-v2.5-flash-free" });
+  const [form, setForm] = useState({ provider: "zen", baseURL: "https://api.opencode.ai/zen/v1", apiKey: "", model: "mimo-v2.5" });
   const [msg, setMsg] = useState("");
   const [testing, setTesting] = useState(false);
 
@@ -26,23 +26,24 @@ export default function AiSettingsPage() {
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-bold">⚙️ Cài đặt AI (HUB)</h1>
-      <p className="opacity-70 text-sm">Nhập provider OpenAI-compatible. Khuyến nghị: baseURL https://api.b.ai/v1, model mimo-v2.5-flash-free hoặc muse-spark-1.2-contributor-free (có vision).</p>
+      <p className="opacity-70 text-sm">Khuyến nghị: <b>opencode zen</b> + model <b>mimo-v2.5</b> (có vision, đã test). api.b.ai hiện không có model phù hợp.</p>
       <div className="space-y-4 bg-slate-800 p-4 rounded-xl">
         <label className="block">Provider
           <select value={form.provider} onChange={e=>setForm({...form, provider:e.target.value})} className="w-full mt-1 p-2 rounded bg-slate-700">
+            <option value="zen">opencode zen (khuyến nghị)</option>
             <option value="custom">Custom (OpenAI compatible)</option>
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
           </select>
         </label>
         <label className="block">Base URL
-          <input value={form.baseURL} onChange={e=>setForm({...form, baseURL:e.target.value})} placeholder="https://api.b.ai/v1" className="w-full mt-1 p-2 rounded bg-slate-700" />
+          <input value={form.baseURL} onChange={e=>setForm({...form, baseURL:e.target.value})} placeholder="https://api.opencode.ai/zen/v1" className="w-full mt-1 p-2 rounded bg-slate-700" />
         </label>
-        <label className="block">API Key
+        <label className="block">API Key (zen key)
           <input type="password" value={form.apiKey} onChange={e=>setForm({...form, apiKey:e.target.value})} className="w-full mt-1 p-2 rounded bg-slate-700" />
         </label>
         <label className="block">Model
-          <input value={form.model} onChange={e=>setForm({...form, model:e.target.value})} placeholder="mimo-v2.5-flash-free" className="w-full mt-1 p-2 rounded bg-slate-700" />
+          <input value={form.model} onChange={e=>setForm({...form, model:e.target.value})} placeholder="mimo-v2.5" className="w-full mt-1 p-2 rounded bg-slate-700" />
         </label>
         <div className="flex gap-2">
           <button onClick={save} className="px-4 py-2 bg-blue-600 rounded">Lưu</button>
