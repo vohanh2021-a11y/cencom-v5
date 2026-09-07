@@ -17,6 +17,13 @@ NGINX_URL="${HEALTH_URL:-https://localhost/api/health}"
 APP_URL="${APP_DIRECT_URL:-http://localhost:3000/api/health}"
 CONTAINER="${APP_CONTAINER:-cencom_v5_web}"
 DB_CONTAINER="${DB_CONTAINER:-cencom_v5_db}"
+# Cổng nếu nginx bind lệch (dev Windows dùng docker-compose.override 18443).
+# Chỉ áp dụng khi dùng URL mặc định; HEALTH_URL đầy đủ thì ưu tiên như cũ.
+PORT_NGINX="${PORT_NGINX:-443}"
+case "${HEALTH_URL:-}" in
+  "") NGINX_URL="https://localhost:${PORT_NGINX}/api/health" ;;
+  *)  NGINX_URL="$HEALTH_URL" ;;
+esac
 
 echo "[healthcheck] $(date -u +%FT%TZ)"
 

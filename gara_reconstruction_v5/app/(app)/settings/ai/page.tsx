@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 
 export default function AiSettingsPage() {
-  const [form, setForm] = useState({ provider: "zen", baseURL: "https://api.opencode.ai/zen/v1", apiKey: "", model: "mimo-v2.5" });
+  const [form, setForm] = useState({ provider: "zen", baseURL: "https://api.opencode.ai/zen/v1", apiKey: "", model: "mimo-v2.5", models: "" });
   const [msg, setMsg] = useState("");
   const [testing, setTesting] = useState(false);
 
@@ -42,8 +42,12 @@ export default function AiSettingsPage() {
         <label className="block">API Key (zen key)
           <input type="password" value={form.apiKey} onChange={e=>setForm({...form, apiKey:e.target.value})} className="w-full mt-1 p-2 rounded bg-slate-700" />
         </label>
-        <label className="block">Model
+        <label className="block">Model chính
           <input value={form.model} onChange={e=>setForm({...form, model:e.target.value})} placeholder="mimo-v2.5" className="w-full mt-1 p-2 rounded bg-slate-700" />
+        </label>
+        <label className="block">Model dự phòng (tùy chọn, phân cách bằng dấu phẩy)
+          <input value={form.models ?? ""} onChange={e=>setForm({...form, models:e.target.value})} placeholder="vd: mimo-v2.5, model-backup-2" className="w-full mt-1 p-2 rounded bg-slate-700" />
+          <span className="text-xs opacity-60">Chính lỗi mạng/quota → tự chuyển model kế tiếp (cooldown 5 phút/model), log ghi rõ failover.</span>
         </label>
         <div className="flex gap-2">
           <button onClick={save} className="px-4 py-2 bg-blue-600 rounded">Lưu</button>

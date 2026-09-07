@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifySession, SESSION_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { decryptConfig } from "@/lib/ai-config";
-import { callProvider, SYSTEM_PROMPT } from "@/lib/ai";
+import { callProviderWithFallback, SYSTEM_PROMPT } from "@/lib/ai";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("ai-chat");
 import { getRegistry } from "@/lib/rpc";
 import { buildApi } from "@/lib/api";
 import { resolveActor } from "@/mcp-server/auth";
@@ -39,8 +42,8 @@ export async function POST(req: NextRequest) {
   })).slice(0, 30); // giới hạn 30 tools đầu để tránh quá token
 
   try {
-    // Gọi provider
-    const result = await callProvider(cfg, messages, tools);
+    // Gọi provider (C2 fallback chain: models[] + cooldown, log failover)
+    const result = await callProviderWithFallback(cfg, messages, tools, log);
 
     // Nếu AI gọi tool, thực thi tool tại HUB và gọi lại provider
     if (result.tool_calls?.length) {
@@ -60,12 +63,12 @@ export async function POST(req: NextRequest) {
           }
         }
       }
-      // Gọi lại provider với kết quả tool
-      const followUp = await callProvider(cfg, [
+      // Gọi lại provider với kết quả tool (fallback chain như lần đầu)
+      const followUp = await callProviderWithFallback(cfg, [
         ...messages,
         { role: "assistant", content: result.content, tool_calls: result.tool_calls } as any,
         ...toolResults.map((tr) => ({ role: "user" as const, content: `[Tool ${tr.name}]: ${tr.content}` })),
-      ]);
+      ], undefined, log);
       // Lưu hội thoại
       await saveHistory(conversation_id, actor.id, messages, followUp.content, result.tool_calls);
       return NextResponse.json({ ok: true, content: followUp.content, tool_calls: result.tool_calls });
