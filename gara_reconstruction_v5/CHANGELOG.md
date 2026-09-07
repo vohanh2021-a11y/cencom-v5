@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/specs/2.0.0.html).
 
-## Unreleased — Wave A deploy gaps (plan PLAN_DEPLOY_GAPS.md)
+## v5.4.1 - 2026-09-07 (Deploy Governance — Wave A/B/C, plan PLAN_DEPLOY_GAPS)
 
 ### Added
 - `GET /api/version` (public, no-store): deploy governance §4 — xác nhận bản đang chạy.

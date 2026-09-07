@@ -1,6 +1,6 @@
 {
   "name": "cencom-gara-hub",
-  "version": "5.4.0",
+  "version": "5.4.1",
   "description": "CencomOS Gara Hub — All-in-One (Electron + Next.js + Portable PG)",
   "main": "main.js",
   "private": true,
