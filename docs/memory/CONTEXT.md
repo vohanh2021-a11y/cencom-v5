@@ -1,28 +1,34 @@
-# CONTEXT — CencomOS Gara v5.3.0
+# CONTEXT — CencomOS Gara v5.4.0
 
 > Trạng thái HIỆN TẠI ≤40 dòng. Cập nhật mỗi phiên.
 
-## Status (2026-09-04)
-- **Version**: 5.3.0 (chưa tag, commit GĐ6+GĐ9 đang push)
-- **Git**: `main` — HEAD GĐ6+GĐ9 (sau `5112401` GĐ polish)
-- **GĐ6 HOÀN THÀNH**: phân trang scList/vattuList/xeList/baogiaList/hoSoList +
-  ledgerReport cache 5' + pg_trgm GIN + export semaphore/cap.
-- **GĐ9 HOÀN THÀNH (Windows/Docker Desktop)**: stack 4/4 healthy qua nginx
-  18443; smoke_onpremise.mjs PASS 6/6 (login→MCP tools/call xe:42).
-- **Conformance**: 28 suites, **777 pass / 0 FAIL** (CONF_EXIT=0 — isolated
-  runner; số 839 cũ là metric khác cách đếm, nguồn hiện tại = 777+3 fail fixed).
-- **Docker**: `cencom_v5_pg` (5432 dev) + stack on-prem chạy song song
-  `cencom_v5_{db,mcp,web,nginx}` qua 18443.
+## Status (2026-09-07)
+- **Version**: 5.4.0 (tag `v5.4.0`); Wave A+C deploy-gaps đã commit `b956591`
+- **Git**: `main` HEAD `b956591` — plan: `docs/PLAN_DEPLOY_GAPS.md`
+- **Wave A DONE (verify thật)**: backup dump đầu tiên → restore khớp `xe=42/users=6`
+  → cron README + Task `CencomV5Backup` chạy ra file; smoke **5 roles + RBAC spot**
+  PASS (giãn 65s né rate-limit); `/api/version` live; HSTS + 1 bộ headers;
+  healthcheck.sh default v5 + PORT_NGINX; backup.sh/restore.sh/pg_backup.sh v5.
+- **Wave C DONE**: AI fallback chain (models[] + cooldown 300s + log SLO, UI nhập
+  model dự phòng); watchdog.cmd live (Task 5', HEALTHY/UNHEALTHY streak, ALERT≥3,
+  đã test stop web → UNHEALTHY → start → HEALTHY); LICENSE + EULA v1.0 (draft);
+  obfuscation DEFER có văn bản (`docs/DECISION_OBFUSCATION.md`).
+- **Audit hiện trạng**: 4 vuln (next/postcss high — mitigated/unoptimized + LAN;
+  exceljs/uuid moderate — chỉ ghi + transitive); qs đã patch; node 20 trong
+  Dockerfile là non-root; standalone 0 `.map`; installer không chứa secret.
+- **MCP**: opencode stdio ✓ connected (81 tools); HTTP on-prem Bearer ✓ smoke.
+- **Hạ tầng dev**: stack on-prem 4/4 healthy qua `18443`; backup/`UNHEALTHY_STREAK`
+  trong `Onpremise/backup/` (gitignored).
 
 ## Blockers
-- Ubuntu THẬT vẫn chưa chạy (mọi thứ verify trên Docker Desktop Windows —
-  node:20-slim, overlayfs, cert mount đều chuẩn Linux rồi, rủi ro thấp còn lại
-  = firewall + systemd path).
-- Electron NSIS CHƯA rebuild sau menu-bar (chỉ cosmetic build-artifact).
+- **Wave B (Ubuntu)**: chờ chạy trong WSL Ubuntu (máy dev là dev-space, KHÔNG
+  phải nơi triển khai thật — theo yêu cầu; kịch bản máy đích = WSL Ubuntu).
+- Next 16 upgrade (2 HIGH CVE fix thật) = dự án riêng.
+- EULA cần luật sư duyệt trước khi thương mại hóa.
 
 ## Next Actions
-1. Tag v5.3.0 + deploy thử Ubuntu thật: copy repo → `Onpremise/scripts/init_certs*`
-   → `bash scripts/init_db.sh` → `node scripts/smoke_onpremise.mjs`.
-2. `npm run build:electron` cho installer mới.
-3. GĐ7 backup verify (pg_dump container db qua cron thật) — GĐ10 multi-tenant
-   chỉ khi có khách thứ 2.
+1. Wave B qua WSL: bật Docker Desktop WSL integration (Ubuntu) → deploy thư mục
+   riêng (ports 8080/8443/25432) → init certs/node20 → init_db → smoke 5 roles
+   → cron backup thật trong Ubuntu → rollback drill.
+2. Sau Wave B: tag release deploy + cập nhật INTEGRATION_DEPLOY/README.
+3. Help F1 chờ duyệt (`docs/PLAN_HELP.md`); Hub máy sạch chờ anh thử.

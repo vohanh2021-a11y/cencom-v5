@@ -24,6 +24,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/specs/2.0.0
 - Scheduled Task `CencomV5Backup` (CN 02:00) đã chạy thử ra file.
 - Smoke 5 roles + MCP: PASS EXIT 0.
 
+### Added (Wave C — hardening, cùng ngày)
+- **AI fallback chain** (governance §7): `providerModels()` + `callProviderWithFallback()` —
+  thử tuần tự `models[]` (UI nhập phân cách phẩy), cooldown 300s/model cho lỗi
+  mạng/429/5xx, log failover như SLO; chat route + UI Settings dùng mới.
+- **Watchdog monitoring tối thiểu** (governance §8 lớp 1): `Onpremise/scripts/watchdog.cmd`
+  (Windows Task 5 phút, HEALTHY/UNHEALTHY + streak + ALERT ≥3 lần liên tiếp) +
+  `healthcheck.sh` hỗ trợ `PORT_NGINX` cho cổng override. Đã verify live:
+  HEALTHY khi web up, UNHEALTHY streak khi dừng web.
+- **LICENSE proprietary + EULA v1.0** (lớp pháp lý governance §6.3) — draft, chờ luật sư.
+- **Quyết định chống dịch ngược** (`docs/DECISION_OBFUSCATION.md`): DEFER obfuscation
+  cho LAN nội bộ — lớp 1 đã đủ (no sourcemap/no dev file/strip console), lớp 2 kích
+  hoạt khi bán ngoài (điều kiện viết rõ).
+
+### Fixed
+- `postcss` 8.5.26→8.5.28, `autoprefixer`, `tsx` (npm update — postcss vẫn nằm trong
+  advisory qua next@14, fix thật = Next 16, đã đánh dấu kế hoạch riêng).
+
 ## v5.4.0 - 2026-09-04 (Hub-and-Spoke + AI nhúng, plan_4.9)
 
 ### Added
