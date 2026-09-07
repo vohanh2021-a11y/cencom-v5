@@ -24,6 +24,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/specs/2.0.0
 - Scheduled Task `CencomV5Backup` (CN 02:00) đã chạy thử ra file.
 - Smoke 5 roles + MCP: PASS EXIT 0.
 
+### Added (Wave B — deploy Ubuntu/WSL 2026-09-07, theo kế hoạch PLAN_DEPLOY_GAPS)
+- **Môi trường đích**: WSL Ubuntu 26.04 LTS (máy dev — nơi triển khai thật là máy
+  khách; kịch bản máy đích mô phỏng đúng ở đây). Docker Desktop WSL integration
+  bật qua `settings-store.json` (`EnableIntegrationWithDefaultWslDistro` +
+  `IntegratedWslDistros: [Ubuntu]`) — bản ghi trong memory.
+- **Deployment tách biệt**: `~/cencom-deploy` (Ubuntu) — compose riêng
+  `cencom_wsl_{db,web,mcp,nginx}` + ports `25432/8080/8443` (không đụng stack
+  Windows `18443`); secret sinh mới (32-byte random), không mang `.env` từ dev.
+- **Init DB đúng kịch bản máy đích**: Node 20.20.2 qua NodeSource trong Ubuntu;
+  schema+accounting+triggers qua psql container (39 bảng); seed qua seed.ts
+  (bundle esbuild vì esbuild/tsx không resolve `../lib` từ thư mục tách — ghi
+  nhận "gara_root" pattern cho máy đích thật). Kết quả: **42 xe + 6 users**.
+- **Smoke 5 roles trên Linux**: 5/5 login 200 qua `https://127.0.0.1:8443`
+  (rate-limit-safe 65s/role, setsid nohup chạy nền).
+- **Backup cron thật trong Ubuntu**: crontab `0 2 * * *` + backup.sh chạy tay →
+  `cencom_2026-09-07_16-17-06.sql.gz` → restore test khớp `42 xe/6 users` → DROP.
+- **Rollback drill**: `docker tag cencom-deploy-web:latest …:rollback-20260907`
+  — quy trình quay lại = retag latest → `up -d` (đã ghi vào README máy đích).
+- **Cert**: `init_certs` thủ công (openssl trực tiếp, CN=cencom-wsl, SAN
+  localhost/127.0.0.1) — `server.key` chmod 600, không commit.
+
+### Verified (Wave B)
+- Stack WSL 4/4 healthy; `/api/health` = `{"ok":true,version:5.4.0}`; `/api/version` OK.
+- MCP HTTP qua nginx: bearer ON 81 tools (user `mcp-gara` tạo bằng
+  `create-mcp-user.cjs` bundle — cùng pattern seed).
+
 ### Added (Wave C — hardening, cùng ngày)
 - **AI fallback chain** (governance §7): `providerModels()` + `callProviderWithFallback()` —
   thử tuần tự `models[]` (UI nhập phân cách phẩy), cooldown 300s/model cho lỗi
