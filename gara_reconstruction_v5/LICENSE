@@ -1,0 +1,33 @@
+LICENSE — CencomOS Gara v5 (Proprietary)
+
+Copyright (c) 2026 Cencom. Bảo lưu mọi quyền.
+
+1. QUYỀN SỞ HỮU
+Phần mềm này (mã nguồn, binary, installer Hub/Spoke, tài liệu kèm theo) là tài
+sản độc quyền của Cencom. Việc sao chép, phân phối, dịch ngược, decompile,
+disassemble, tạo sản phẩm phái sinh hoặc chia sẻ cho bên thứ ba KHÔNG ĐƯỢC PHÉP
+mà không có giấy phép bằng văn bản từ Cencom.
+
+2. GIẤY PHÉP SỬ DỤNG NỘI BỘ
+Cencom cấp cho khách hàng đã ký hợp đồng quyền sử dụng phần mềm trên số lượng
+máy/địa điểm đã thỏa thuận, phục vụ hoạt động kinh doanh của chính khách hàng.
+
+3. CÁC THÀNH PHẦN MÃ NGUỒN MỞ
+Phần mềm sử dụng các thư viện mã nguồn mở (Next.js, React, PostgreSQL, ExcelJS,
+Electron và các thư viện trong package.json). Các quyền và thông báo bản quyền
+tương ứng thuộc về chủ sở hữu của chúng — danh mục đầy đủ trong
+`package.json`/`package-lock.json`. Thư viện mã nguồn mở được giữ nguyên điều
+khoản license gốc của nó (MIT/Apache/BSD…), và không bị điều khoản độc quyền
+của tài liệu này chi phối ngược.
+
+4. BẢO HÀNH — MIỄN TRỪ
+Phần mềm được cung cấp "NGUYÊN TRẠNG" (AS IS) không bảo đảm nào, rõ ràng hay
+ngụ ý. Cencom không chịu trách nhiệm với tổn thất dữ liệu nếu khách hàng không
+thực hiện sao lưu theo hướng dẫn (khuyến nghị: pg_dump hàng ngày).
+
+5. CHẤM DỨT
+Vi phạm các điều khoản trên làm giấy phép tự động chấm dứt; khi đó khách hàng
+phải gỡ bỏ toàn bộ bản cài.
+
+> LƯU Ý: Bản draft nội bộ — trước khi thương mại hóa cần luật sư xem lại
+> (xem docs/PLAN_DEPLOY_GAPS.md, mục C4).
