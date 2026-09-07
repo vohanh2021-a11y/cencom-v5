@@ -1,15 +1,16 @@
 #!/bin/bash
-# === backup/pg_backup.sh — PostgreSQL backup hàng ngày ===
-# Cron: 0 2 * * * docker exec supabase-db /backup/pg_backup.sh
-# Hoặc chạy trực tiếp từ host: bash backup/pg_backup.sh
+# === backup/pg_backup.sh — PostgreSQL backup hàng ngày (v5) ===
+# Cron (Ubuntu): 0 2 * * * cd /opt/cencom/Onpremise && bash scripts/backup/pg_backup.sh
+# Container DB v5: cencom_v5_db (đổi qua DB_CONTAINER nếu cần).
 
 set -e
 
 BACKUP_DIR=${BACKUP_DIR:-/opt/cencom/backups}
 DATE=$(date +%Y%m%d_%H%M%S)
 RETENTION_DAYS=${RETENTION_DAYS:-7}
-DB_NAME=${DB_NAME:-cencom_os}
+DB_NAME=${DB_NAME:-cencom}
 DB_USER=${DB_USER:-postgres}
+DB_CONTAINER=${DB_CONTAINER:-cencom_v5_db}
 
 mkdir -p "$BACKUP_DIR"
 
@@ -19,7 +20,7 @@ echo "[$(date)] === Bắt đầu backup ==="
 echo "[$(date)] Dump PostgreSQL..."
 if command -v docker > /dev/null 2>&1; then
     # Chạy qua Docker
-    docker exec -i supabase-db pg_dump -U "$DB_USER" "$DB_NAME" > "$BACKUP_DIR/cencom_$DATE.sql" 2>&1
+    docker exec -i "$DB_CONTAINER" pg_dump -U "$DB_USER" "$DB_NAME" > "$BACKUP_DIR/cencom_$DATE.sql" 2>&1
 else
     # Chạy trực tiếp (nếu psql cài trên host)
     PGPASSWORD="$DB_PASSWORD" pg_dump -h localhost -U "$DB_USER" "$DB_NAME" > "$BACKUP_DIR/cencom_$DATE.sql" 2>&1

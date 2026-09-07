@@ -15,8 +15,8 @@ set -uo pipefail
 
 NGINX_URL="${HEALTH_URL:-https://localhost/api/health}"
 APP_URL="${APP_DIRECT_URL:-http://localhost:3000/api/health}"
-CONTAINER="${APP_CONTAINER:-cencom-web}"
-DB_CONTAINER="${DB_CONTAINER:-supabase-db}"
+CONTAINER="${APP_CONTAINER:-cencom_v5_web}"
+DB_CONTAINER="${DB_CONTAINER:-cencom_v5_db}"
 
 echo "[healthcheck] $(date -u +%FT%TZ)"
 

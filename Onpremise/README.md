@@ -52,13 +52,20 @@ sudo security add-trusted-cert -d -r -k /Library/Keychains/System.keychain nginx
 
 ---
 
-## Backup hàng ngày (cron)
+## Backup hàng ngày (cron) — đã verify 07/09/2026 (dump → restore khớp 42 xe/6 users)
 
-Trên server, thêm crontab:
+Trên server Ubuntu, thêm crontab:
 ```bash
 crontab -e
-# Thêm:
-0 2 * * * /opt/cencom/Onpremise/scripts/backup/pg_backup.sh >> /opt/cencom/Onpremise/backups/cron.log 2>&1
+# Thêm (giữ 30 ngày, log cron):
+0 2 * * * cd /opt/cencom/Onpremise && bash scripts/backup.sh >> /opt/cencom/Onpremise/backup/cron.log 2>&1
+```
+Kiểm chứng restore (bắt buộc sau lần backup đầu trên máy mới):
+```bash
+docker exec cencom_v5_db psql -U postgres -c "CREATE DATABASE cencom_restore_test;"
+gunzip -c backup/cencom_<date>.sql.gz | docker exec -i cencom_v5_db psql -U postgres -d cencom_restore_test --quiet
+docker exec cencom_v5_db psql -U postgres -d cencom_restore_test -tAc "SELECT COUNT(*) FROM xe"
+# phải khớp COUNT trên DB gốc, xong: DROP DATABASE cencom_restore_test
 ```
 
 ---

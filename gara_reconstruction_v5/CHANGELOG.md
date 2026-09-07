@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/specs/2.0.0.html).
 
+## Unreleased — Wave A deploy gaps (plan PLAN_DEPLOY_GAPS.md)
+
+### Added
+- `GET /api/version` (public, no-store): deploy governance §4 — xác nhận bản đang chạy.
+- `Onpremise/smoke_run.cmd`: chạy smoke nền trên Windows (nạp env từ `.env.onpremise.local`).
+
+### Fixed
+- `qs` patch qua `npm audit fix` (moderate array-limit bypass + DoS).
+- `backup.sh` / `restore.sh` / `backup/pg_backup.sh`: default v5 (`cencom_v5_db`/`cencom`, đọc `.env.onpremise.local`) thay vì stale v4.
+- `healthcheck.sh`: default container v5.
+- nginx: thêm HSTS + `proxy_hide_header` server-level (dẹp header trùng DENY-vs-SAMEORIGIN).
+- `next.config.js`: `productionBrowserSourceMaps: false` + `removeConsole` (giữ error/warn) — governance Iron Law #4.
+- Smoke: login 5 roles + RBAC spot-check (giãn 65s né rate-limit 5 lần/5 phút), trim env chống space.
+
+### Verified
+- Backup đầu tiên `cencom_2026-09-07_11-22-59.sql.gz` (8.8KB) → restore khớp `xe=42 users=6` → DROP DB test.
+- Scheduled Task `CencomV5Backup` (CN 02:00) đã chạy thử ra file.
+- Smoke 5 roles + MCP: PASS EXIT 0.
+
 ## v5.4.0 - 2026-09-04 (Hub-and-Spoke + AI nhúng, plan_4.9)
 
 ### Added

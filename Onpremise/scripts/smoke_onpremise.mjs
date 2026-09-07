@@ -17,10 +17,10 @@
  */
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // cert self-signed LAN
 
-const BASE = process.env.SMOKE_BASE || 'https://127.0.0.1';
-const USER = process.env.MCP_USER || 'mcp-gara';
-const PASS = process.env.MCP_PASS || process.env.CENCOM_TEST_PASS || 'cencom@123';
-const API = process.env.MCP_API_KEY || '';
+const BASE = (process.env.SMOKE_BASE || 'https://127.0.0.1').trim();
+const USER = (process.env.MCP_USER || 'mcp-gara').trim();
+const PASS = (process.env.MCP_PASS || process.env.CENCOM_TEST_PASS || 'cencom@123').trim();
+const API = (process.env.MCP_API_KEY || '').trim();
 
 let RC = 0;
 const fail = (m) => { console.error('❌ ' + m); RC = 1; };
@@ -36,6 +36,37 @@ async function main() {
   if (r1.status !== 200) fail(`login ${r1.status} — sai tài khoản? tạo bằng scripts/create-mcp-user`);
   const cookie = (r1.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
   console.log(`1. LOGIN ${r1.status} ${JSON.stringify(j1).slice(0, 80)}`);
+
+  // 1b) login đủ 5 roles seed (cùng pass cencom@123) + RBAC spot-check:
+  // xuong gọi ledgerReport (ke_toan.baocao) phải 403
+  // Rate-limit prod: 5 lần / 5 phút / IP → smoke 6 login phải giãn 65s (tổng ~6 phút,
+  // chấp nhận được cho cổng deploy; conformance đã phủ nhanh bằng supertest)
+  const SEED_PASS = process.env.CENCOM_TEST_PASS || 'cencom@123';
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const AUTH_GAP_MS = 65000;
+  const roleCookies = {};
+  for (const role of ['admin', 'giamdoc', 'xuong', 'ketoan', 'kho']) {
+    await sleep(AUTH_GAP_MS);
+    const rr = await fetch(`${BASE}/api/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'login', user: role, pass: SEED_PASS }),
+    });
+    if (rr.status !== 200) fail(`login role ${role} → ${rr.status}`);
+    roleCookies[role] = (rr.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
+  }
+  console.log('1b. LOGIN 5 roles (admin/giamdoc/xuong/ketoan/kho) → 200 tất cả');
+  // 1c) tái dùng session xuong trong loop (không login thêm — tiết kiệm quota rate-limit)
+  const xuongCookie = roleCookies.xuong;
+  const rX = await fetch(`${BASE}/api/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie: xuongCookie },
+    body: JSON.stringify({ fn: 'ledgerReport', args: {} }),
+  });
+  const jX = await rX.json().catch(() => ({}));
+  // xuong có must_change=1 (seed) → cổng must_change chặn trước RBAC; cả 2 đều phải từ chối (403)
+  if (![401, 403].includes(rX.status) && jX.ok !== false) fail('RBAC spot: xuong gọi ledgerReport không bị chặn');
+  console.log(`1c. RBAC spot xuong→ledgerReport: HTTP ${rX.status} ok=${jX.ok} (bị chặn đúng)`);
 
   // 2) dashboardAll KPI
   const r2 = await fetch(`${BASE}/api/rpc`, {

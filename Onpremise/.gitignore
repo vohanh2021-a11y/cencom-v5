@@ -8,3 +8,7 @@ volumes/pg_data/*
 volumes/storage_data/*
 backups/
 *.log
+
+# backup dumps (real data) + cron log — never commit
+backup/*.sql.gz
+backup/cron.log

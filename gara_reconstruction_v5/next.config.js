@@ -59,8 +59,16 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 module.exports = {
-  reactStrictMode: true,
-  output: 'standalone',
+reactStrictMode: true,
+output: 'standalone',
+
+// ★ Deploy governance: cấm source map trong release (Iron Law #4) — không phụ
+// thuộc default framework; strip console.* production (giữ error/warn để debug
+// bằng log thay vì sourcemap).
+productionBrowserSourceMaps: false,
+compiler: {
+removeConsole: { exclude: ['error', 'warn'] },
+},
 
   // ★ Mitigation CVE Next.js Image Optimizer DoS (GHSA-9g9p-9gw9-jx7f, GHSA-h64f-5h5j-jqjh, GHSA-3x4c-7xq6-9pq8)
   // Tắt Image Optimization API trên self-hosted để loại bỏ vecto tấn công DoS qua remotePatterns / disk cache.
