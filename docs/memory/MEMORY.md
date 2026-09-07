@@ -58,7 +58,10 @@
   converter UTF8(no-BOM) khi sửa file máy khách đọc = JSON.
 
 ## Tags & Versions
-- `v4.0.0` → `v5.0.0-beta` → `v5.0.0` → `v5.1.0` → `v5.2.0` → `v5.3.0` → **5.4.0 (Hub-and-Spoke + AI, tag tại HEAD)**
+- `v4.0.0` → … → `v5.4.0 (Hub-and-Spoke+AI)` → **v5.4.1 (Deploy Governance — tag release, 07/09)**
 - AI provider mặc định: **opencode zen + mimo-v2.5** (api.b.ai thiếu model phù hợp)
 - Docker Desktop Windows có thể treo khi build dài (npm ci) → rebuild detached qua WMI + log, up -d lại sau khi daemon hồi; sau restart engine phải recreate nginx (port-forward 18443 chết) + `docker start cencom_v5_pg`
+- **Bind-mount volume với `device: ./relative` CHẾT sau daemon restart** (Docker Desktop hash-path đổi) → compose volume dùng NAMED volume thuần (`driver: local`, không `driver_opts`); fix đã áp vào WSL deploy — kiểm tra compose máy đích trước khi `up` lần 2
+- WSL integration bật bằng `settings-store.json` (`EnableIntegrationWithDefaultWslDistro` + `IntegratedWslDistros`) + restart Docker Desktop — symlinks `/usr/bin/docker` trong Ubuntu hồi phục
+- tsx/esbuild KHÔNG resolve `../lib` khi seed.ts tách khỏi repo (bundle qua esbuild `--external:pg` từ thư mục CON — pattern `gara_root/sub/`)
 - Branch `main` (clean), `draft/gd4-gd5-v4` (két sắt 103 file)
