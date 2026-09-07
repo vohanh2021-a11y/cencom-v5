@@ -4,7 +4,7 @@
 # Dùng: bash scripts/restore.sh <backup_file.sql.gz>
 # CẢNH BÁO: ghi đè database hiện tại.
 #
-# Đọc DB_NAME / DB_USER từ ../.env; container DB mặc định "supabase-db".
+# Đọc DB_NAME / DB_USER từ ../.env.onpremise.local (v5); container DB "cencom_v5_db".
 # =============================================================================
 set -euo pipefail
 
@@ -14,12 +14,17 @@ if [[ $# -ne 1 ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/../.env"
-if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
+ENV_FILE="$SCRIPT_DIR/../.env.onpremise.local"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source <(grep -E '^(DB_|BACKUP_DIR)=' "$ENV_FILE")
+  set +a
+fi
 
-DB_NAME="${DB_NAME:-cencom_os}"
+DB_NAME="${DB_NAME:-cencom}"
 DB_USER="${DB_USER:-postgres}"
-DB_CONTAINER="${DB_CONTAINER:-supabase-db}"
+DB_CONTAINER="${DB_CONTAINER:-cencom_v5_db}"
 
 FILE="$1"
 if [[ ! -f "$FILE" ]]; then

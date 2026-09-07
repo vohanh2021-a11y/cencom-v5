@@ -4,18 +4,23 @@
 # Chạy trên server: bash scripts/backup.sh
 # Tạo file <BACKUP_DIR>/cencom_<date>.sql.gz (giữ 30 ngày)
 #
-# Đọc DB_NAME / DB_USER / DB_PASSWORD từ ../.env (file nội suy của compose).
-# Container DB mặc định là "supabase-db" (đổi qua biến DB_CONTAINER nếu deploy v5).
+# Đọc DB_NAME / DB_USER / DB_PASSWORD từ ../.env.onpremise.local (v5).
+# Container DB mặc định là "cencom_v5_db" (đổi qua biến DB_CONTAINER nếu cần).
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/../.env"
-if [[ -f "$ENV_FILE" ]]; then source "$ENV_FILE"; fi
+ENV_FILE="$SCRIPT_DIR/../.env.onpremise.local"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source <(grep -E '^(DB_|BACKUP_DIR)=' "$ENV_FILE")
+  set +a
+fi
 
-DB_NAME="${DB_NAME:-cencom_os}"
+DB_NAME="${DB_NAME:-cencom}"
 DB_USER="${DB_USER:-postgres}"
-DB_CONTAINER="${DB_CONTAINER:-supabase-db}"
+DB_CONTAINER="${DB_CONTAINER:-cencom_v5_db}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/cencom}"
 
 mkdir -p "$BACKUP_DIR"
